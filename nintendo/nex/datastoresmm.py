@@ -166,21 +166,21 @@ class DataStoreCompletePostParam(common.Structure):
 class DataStoreFileServerObjectInfo(common.Structure):
 	def __init__(self):
 		super().__init__()
-		self.unk = None
+		self.data_id = None
 		self.info = DataStoreReqGetInfo()
 	
 	def check_required(self, settings):
-		for field in ['unk']:
+		for field in ['data_id']:
 			if getattr(self, field) is None:
 				raise ValueError("No value assigned to required field: %s" %field)
 	
 	def load(self, stream):
-		self.unk = stream.u64()
+		self.data_id = stream.u64()
 		self.info = stream.extract(DataStoreReqGetInfo)
 	
 	def save(self, stream):
 		self.check_required(stream.settings)
-		stream.u64(self.unk)
+		stream.u64(self.data_id)
 		stream.add(self.info)
 
 
@@ -846,42 +846,6 @@ class UnknownStruct2(common.Structure):
 		stream.u8(self.unk2)
 
 
-class UnknownStruct3(common.Structure):
-	def __init__(self):
-		super().__init__()
-		self.unk1 = None
-		self.unk2 = None
-		self.unk3 = None
-		self.unk4 = None
-		self.unk5 = None
-		self.unk6 = None
-		self.unk7 = None
-	
-	def check_required(self, settings):
-		for field in ['unk1', 'unk2', 'unk3', 'unk4', 'unk5', 'unk6', 'unk7']:
-			if getattr(self, field) is None:
-				raise ValueError("No value assigned to required field: %s" %field)
-	
-	def load(self, stream):
-		self.unk1 = stream.u64()
-		self.unk2 = stream.u8()
-		self.unk3 = stream.u32()
-		self.unk4 = stream.u32()
-		self.unk5 = stream.u32()
-		self.unk6 = stream.datetime()
-		self.unk7 = stream.datetime()
-	
-	def save(self, stream):
-		self.check_required(stream.settings)
-		stream.u64(self.unk1)
-		stream.u8(self.unk2)
-		stream.u32(self.unk3)
-		stream.u32(self.unk4)
-		stream.u32(self.unk5)
-		stream.datetime(self.unk6)
-		stream.datetime(self.unk7)
-
-
 class UnknownStruct4(common.Structure):
 	def __init__(self):
 		super().__init__()
@@ -909,9 +873,16 @@ class UnknownStruct5(common.Structure):
 		self.unk1 = None
 		self.unk2 = None
 		self.unk3 = None
+		self.unk4 = None
+		self.unk5 = None
+	
+	def get_version(self, settings):
+		version = 0
+		version = 1
+		return version
 	
 	def check_required(self, settings):
-		for field in ['unk1', 'unk2', 'unk3']:
+		for field in ['unk1', 'unk2', 'unk3', 'unk4', 'unk5']:
 			if getattr(self, field) is None:
 				raise ValueError("No value assigned to required field: %s" %field)
 	
@@ -919,12 +890,16 @@ class UnknownStruct5(common.Structure):
 		self.unk1 = stream.u8()
 		self.unk2 = stream.u32()
 		self.unk3 = stream.u32()
+		self.unk4 = stream.u32()
+		self.unk5 = stream.u32()
 	
 	def save(self, stream):
 		self.check_required(stream.settings)
 		stream.u8(self.unk1)
 		stream.u32(self.unk2)
 		stream.u32(self.unk3)
+		stream.u32(self.unk4)
+		stream.u32(self.unk5)
 
 
 class UnknownStruct6(common.Structure):

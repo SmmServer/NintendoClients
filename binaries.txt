@@ -1,0 +1,3 @@
+Pretendo++.exe: https://github.com/mrexodia/PretendoPlusPlus (compiled and signed)
+ASH.exe: http://crediar.no-ip.com/ASH_v0.1.rar (unmodified, but signed)
+ashcompress.exe: https://gbatemp.net/download/ash-compressor.34055/ (unmodified, but signed)

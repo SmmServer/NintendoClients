@@ -157,7 +157,7 @@ protocol DataStoreSmm : 115 {
 	}
 
 	struct DataStoreFileServerObjectInfo {
-		uint64 unk;
+		uint64 data_id;
 		DataStoreReqGetInfo info;
 	}
 
@@ -223,25 +223,18 @@ protocol DataStoreSmm : 115 {
 		uint8 unk2;
 	}
 
-	struct UnknownStruct3 {
-		uint64 unk1;
-		uint8 unk2;
-		uint32 unk3;
-		uint32 unk4;
-		uint32 unk5;
-		datetime unk6;
-		datetime unk7;
-	}
-
 	struct UnknownStruct4 {
 		uint64 data_id;
 		uint32 unk2;
 	}
 
 	struct UnknownStruct5 {
+		#revision 1
 		uint8 unk1;
 		uint32 unk2;
 		uint32 unk3;
+		uint32 unk4;
+		uint32 unk5;
 	}
 
 	struct UnknownStruct6 {

@@ -8,8 +8,13 @@ import secrets
 import time
 import argparse
 import logging
-logging.basicConfig(level=logging.INFO)
 
+# https://stackoverflow.com/a/44175370/1806760
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s: %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -49,7 +54,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
         self.secure_port = secure_port
 
     def login(self, context, username):
-        print("User trying to log in:", username)
+        logger.info("User trying to log in: {}".format(username))
 
         user = get_user_by_name(username)
         if not user:
@@ -132,7 +137,7 @@ class FriendsServer(friends.FriendsServer):
         super(FriendsServer, self).__init__()
 
     def get_all_information(self, context, nna_info, presence, birthday):
-        print("FriendsServer.get_all_information(pid: %d, call_id: %d, nna_info: %s, presence: %s, birthday: %s" % (context.pid, context.client.call_id, nna_info, presence, birthday))
+        logger.info("FriendsServer.get_all_information(pid: %d, call_id: %d, nna_info: %s, presence: %s, birthday: %s" % (context.pid, context.client.call_id, nna_info, presence, birthday))
         principal_preference = friends.PrincipalPreference()
         principal_preference.unk1 = True
         principal_preference.unk2 = True
@@ -156,7 +161,7 @@ class FriendsServer(friends.FriendsServer):
         return response
 
     def update_presence(self, context, presence):
-        print("FriendsServer.update_presence not implemented")
+        logger.info("FriendsServer.update_presence not implemented")
         raise common.RMCError("Core::NotImplemented")
 
 
@@ -180,12 +185,12 @@ def main():
     secure_server.register_protocol(SecureConnectionServer())
     secure_server.register_protocol(FriendsServer())
     secure_server.start(host, 60021, key=server_key)
-    print("friends secure server {}:60021".format(host))
+    logger.info("friends secure server {}:60021".format(host))
 
     auth_server = service.RMCServer(settings)
     auth_server.register_protocol(AuthenticationServer(settings, host, 60021))
     auth_server.start(host, 60000)
-    print("friends auth server {}:60000".format(host))
+    logger.info("friends auth server {}:60000".format(host))
 
     input("Press enter to exit...\n")
 
