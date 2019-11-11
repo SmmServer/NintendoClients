@@ -434,9 +434,13 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         """
         Function related to 100 Mario Challenge and course browser
         Observed values:
-        ["1", "0", "34", "", "0"]  # easy
-        ["1", "0", "74", "", "0"]  # normal
-        ["1", "75", "95", "", "0"] # expert
+        ["1", "0", "34", "", "0"]   # easy
+        ["1", "0", "29", "", "0"]   # easy(?) (conditions unknown)
+        ["1", "0", "74", "", "0"]   # normal
+        ["1", "0", "69", "", "0"]   # normal(?) (conditions unknown)
+        ["1", "75", "95", "", "0"]  # expert
+        ["1", "70", "100", "", "0"] # expert(?) (conditions unknown)
+        ["1", "96", "100", "", "0"] # super expert
         Rambo6Glaz derived the following:
         Maybe it’s the minimum and maximum clear rate for the difficulty
         Or fail rate
@@ -462,14 +466,19 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             fail_rate_min, fail_rate_max = int(unknown2[1]), int(unknown2[2])
             logger.info("min: {}, max: {}".format(fail_rate_min, fail_rate_max))
             if unknown2[3] == "":
+                # Little bit of a hack, in the wild different values have been observed (see method comment).
+                # The workaround is to check if the difficulty parameter is 'close', which might work.
+                def is_close(a, b):
+                    return abs(a - b) <= 10
+
                 logger.info("detected 100 mario")
-                if fail_rate_min == 0 and fail_rate_max == 34:  # easy
+                if is_close(fail_rate_min, 0) and is_close(fail_rate_max, 34):  # easy
                     difficulty = 0
-                elif fail_rate_min == 0 and fail_rate_max == 74:  # normal
+                elif is_close(fail_rate_min, 0) and is_close(fail_rate_max, 74):  # normal
                     difficulty = 1
-                elif fail_rate_min == 75 and fail_rate_max == 95:  # expert
+                elif is_close(fail_rate_min, 75) and is_close(fail_rate_max, 95):  # expert
                     difficulty = 2
-                elif fail_rate_max == 100:  # super expert TODO: verify
+                elif is_close(fail_rate_min, 96) and is_close(fail_rate_max, 100):  # super expert
                     difficulty = 3
                 else:
                     raise common.RMCError("DataStore::InvalidArgument")
