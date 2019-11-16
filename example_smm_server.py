@@ -633,7 +633,9 @@ def main():
     auth_server.start(host, auth_server_port)
     logger.info("smm auth server {}:{}".format(host, auth_server_port))
 
-    input("Press enter to exit...\n")
+    logger.info("Press Ctrl+C to exit...")
+    while True:
+        time.sleep(1)
 
 
 if __name__ == "__main__":
