@@ -139,7 +139,7 @@ class Request:
 		self.headers["Authorization"] = "Bearer %s" %token
 		
 	def format(self, url):
-		return "https://account.nintendo.net/v1/api/%s" %url
+		return self.api.baseurl + url
 		
 	def get(self, url, params=None):
 		req = requests.Request("GET", self.format(url), self.headers, params=params)
@@ -173,6 +173,7 @@ class AccountAPI:
 			"X-Nintendo-Environment": "L1"
 		}
 		self.session = requests.Session()
+		self.baseurl = "https://account.nintendo.net/v1/api/"
 		
 		self.access_token = None
 		self.refresh_token = None

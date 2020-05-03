@@ -4,8 +4,13 @@ from nintendo.games import SMM
 import argparse
 import logging
 import base64
+import time
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s: %(message)s",
+    level=logging.DEBUG,
+    datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-host", default="127.0.0.1")
@@ -31,16 +36,16 @@ backend.login(
 
 client = datastoresmm.DataStoreSmmClient(backend.secure_client)
 
-import time
-time.sleep(20)
+logger.info("sleeping 5 seconds...")
+time.sleep(5)
 
 response = client.check_rate_custom_ranking_counter(0)
-print("response: {}".format(response))
+logger.info("response: {}".format(response))
 
-import time
-time.sleep(20)
+logger.info("sleeping 5 seconds...")
+time.sleep(5)
 
 response = client.check_rate_custom_ranking_counter(0)
-print("response: {}".format(response))
+logger.info("response: {}".format(response))
 
 backend.close()

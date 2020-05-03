@@ -6,20 +6,24 @@ import hashlib
 import struct
 
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s: %(message)s",
+    level=logging.DEBUG,
+    datefmt="%Y-%m-%d %H:%M:%S")
+logger = logging.getLogger(__name__)
 
 #Device id can be retrieved with a call to MCP_GetDeviceId on the Wii U
 #Serial number can be found on the back of the Wii U
-DEVICE_ID = ...
-SERIAL_NUMBER = ...
-SYSTEM_VERSION = ...
-REGION = ...
-COUNTRY = ...
-DEVICE_CERT = ...
+DEVICE_ID = 1145749943
+SERIAL_NUMBER = "FW405593268"
+SYSTEM_VERSION = 230
+REGION = 4
+COUNTRY = "PL"
+DEVICE_CERT = "AAEABQBKDbEvwTrwca7tBJ6CSgUFeSSMaqtq/dk9hLvLggCB0yJ0FEl0zZW+5rc4A74MiGgoH7MGg4aMIfdasgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSb290LUNBMDAwMDAwMDMtTVMwMDAwMDAxMgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAk5HNDQ0YWMxYjcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB1+zkOANbcA8QS4OrWZQZiiJ1NW1rBMUOW8aHTQRV59LlJALysosIiEw+lcwYPWZYk/lkYBTRrqWGdtZDvCPVqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-USERNAME = ... #Nintendo network id
-plain_password = ...
-pid = ...
+USERNAME = "dummy" #Nintendo network id
+plain_password = "password"
+pid = 1337
 data = struct.pack("<I", pid) + b"\x02\x65\x43\x46" + plain_password.encode("ascii")
 PASSWORD = hashlib.sha256(data).digest().hex()
 
@@ -28,6 +32,8 @@ SYSTEM_TITLE_ID = 0x0005001010040200
 SYSTEM_APPLICATION_VERSION = 0xC4
 
 api = account.AccountAPI()
+api.headers["Host"] = "account.nintendo.net"
+api.baseurl = "http://127.0.0.1/v1/api/"
 api.set_device(DEVICE_ID, SERIAL_NUMBER, SYSTEM_VERSION, REGION, COUNTRY, DEVICE_CERT)
 api.set_title(SYSTEM_TITLE_ID, SYSTEM_APPLICATION_VERSION)
 api.login(USERNAME, PASSWORD, hash=True)
@@ -52,257 +58,7 @@ backendclient.login(nex_token_smm.username, nex_token_smm.password, auth_info, N
 client = datastoresmm.DataStoreSmmClient(backendclient.secure_client)
 
 courseids = [
-    65620908,
-    65620917,
-    65457532,
-    65320977,
-    65498934,
-    65359084,
-    65320972,
-    65403280,
-    65031806,
-    65313929,
-    65335952,
-    65566924,
-    65591832,
-    64984758,
-    65509915,
-    65737778,
-    64818299,
-    65299472,
-    65476794,
-    64818295,
-    64736583,
-    64110419,
-    64287571,
-    65231410,
-    63218115,
-    65151623,
-    65150467,
-    65498928,
-    65670447,
-    64641559,
-    65556905,
-    65335948,
-    65461379,
-    65165020,
-    63238749,
-    65108642,
-    64277352,
-    65269274,
-    64287557,
-    64641555,
-    64742271,
-    64110413,
-    65515653,
-    64756444,
-    64033060,
-    64985820,
-    65682717,
-    63612433,
-    63030649,
-    64731452,
-    65296748,
-    65186506,
-    65269291,
-    64558715,
-    65155869,
-    28268626,
-    61518443,
-    64939673,
-    60038102,
-    65369347,
-    65582711,
-    65615211,
-    65646455,
-    64822966,
-    65514085,
-    65623593,
-    65605875,
-    65494207,
-    35681763,
-    65634622,
-    64412356,
-    65659805,
-    52668374,
-    64603129,
-    64504220,
-    65449816,
-    65127115,
-    62978544,
-    64883297,
-    35302598,
-    65653287,
-    64756461,
-    63496175,
-    65477979,
-    65385731,
-    65193317,
-    65336638,
-    65388518,
-    63824721,
-    65620631,
-    65250618,
-    63816108,
-    65695556,
-    65314602,
-    64162478,
-    65173605,
-    65239681,
-    65579866,
-    64704670,
-    65446452,
-    63580552,
-    65740999,
-    65188834,
-    63164526,
-    65600285,
-    65669719,
-    62438376,
-    63738500,
-    64883444,
-    64882777,
-    64882443,
-    65365388,
-    65492521,
-    65270655,
-    63783697,
-    65097400,
-    63905625,
-    65439404,
-    64882961,
-    62735901,
-    64883469,
-    64882422,
-    64651714,
-    64883537,
-    64882434,
-    61778354,
-    64883314,
-    65176844,
-    64019917,
-    65130688,
-    64882756,
-    21340114,
-    61914308,
-    64883367,
-    63767091,
-    64721236,
-    64883516,
-    65488476,
-    58730112,
-    64927424,
-    63463114,
-    53773848,
-    63135977,
-    63942447,
-    65369069,
-    63589544,
-    64448845,
-    61184308,
-    60710981,
-    60700333,
-    58990905,
-    59598949,
-    59777640,
-    59390756,
-    64468989,
-    60710955,
-    64195238,
-    60700346,
-    64769937,
-    64600158,
-    60700289,
-    65668444,
-    65330174,
-    60700339,
-    60700351,
-    59806818,
-    65174820,
-    64026169,
-    61765392,
-    63466475,
-    63413462,
-    63033398,
-    64882966,
-    60700329,
-    60027494,
-    64882988,
-    59936357,
-    65277057,
-    64244184,
-    59470046,
-    64973969,
-    63703860,
-    63767073,
-    64883442,
-    63628928,
-    54204638,
-    59516847,
-    64576281,
-    64882885,
-    65285524,
-    65512567,
-    63703201,
-    63265973,
-    63531898,
-    60994097,
-    64882740,
-    63850591,
-    65177098,
-    64314946,
-    63119899,
-
-    64796618,
-    49695667,
-    28119175,
-    2102808,
-    3866296,
-    44749176,
-    43512485,
-    38335933,
-    32687002,
-    6818589,
-    54260699,
-    12343975,
-    12499078,
-    11929021,
-    14447983,
-    29671550,
-    65504125,
-    43675498,
-    55821900,
-    3776669,
-    54423439,
-    57942629,
-    21978868,
-    53604070,
-    34656348,
-    34167531,
-    4426626,
-    57848250,
-    59692947,
-    13216490,
-    10758639,
-    9251468,
-    6522051,
-    53888266,
-    52021457,
-    6241058,
-    52195690,
-    21620316,
-    7675467,
-    25747081,
-    63912035,
-    25464845,
-    30489825,
-    38271970,
-    5176861,
-    19595780,
-    5236596,
-    5478370,
-    40908729,
-    47116716,
+    10000000000,
 ]
 
 
@@ -310,7 +66,7 @@ def save_stream(outfile, func):
     settings = backend.Settings("default.cfg")
     settings.set("nex.access_key", SMM.ACCESS_KEY)
     settings.set("nex.version", SMM.NEX_VERSION)
-    settings.set("prudp.silence_timeout", 10.0)
+    settings.set("prudp.ping_timeout", 10.0)
     stream = common.streams.StreamOut(settings)
     func(stream)
     f = open(outfile, "wb")
@@ -376,6 +132,7 @@ while i < len(courseids):
         req_info: datastoresmm.DataStoreReqGetInfo
         req_info = client.prepare_get_object(req_param)
         final_courseurls.append(req_info.url)
+        logger.info("data_id: {}, URL: {}".format(req_param.data_id, req_info.url))
 
         rankingparam = datastoresmm.UnknownStruct2()
         rankingparam.data_id = coursedata.info.data_id
@@ -402,7 +159,7 @@ while i < len(courseids):
         save_stream("best_smm_miidatas{}.bin".format(coursedata.info.data_id), lambda s: s.list(best_smm_miidatas, s.add))
 
         unkparam = datastoresmm.UnknownStruct4()
-        unkparam.unk1 = coursedata.info.data_id
+        unkparam.data_id = coursedata.info.data_id
         unkparam.unk2 = 3
         unkdatas = client.get_buffer_queue(unkparam)
         save_stream("unkdatas{}.bin".format(coursedata.info.data_id), lambda s: s.list(unkdatas, s.qbuffer))

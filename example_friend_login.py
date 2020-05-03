@@ -5,7 +5,10 @@ import argparse
 import logging
 import base64
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s: %(message)s",
+    level=logging.DEBUG,
+    datefmt="%Y-%m-%d %H:%M:%S")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-host", default="127.0.0.1")
