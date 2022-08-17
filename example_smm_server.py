@@ -73,6 +73,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
 
         user = get_user_by_name(username)
         if not user:
+            logger.error("Did you check Options -> General settings -> Account -> 'Enable online mode' in Cemu?")
             raise common.RMCError("RendezVous::InvalidUsername")
 
         server = get_user_by_name(SECURE_SERVER)
@@ -276,6 +277,9 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     mii_data.ratings = []
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
+                elif data.result_option == 6:  # event courses
+                    # TODO: implement
+                    pass
                 else:
                     logger.critical(f"result_option: {data.result_option}")
                     raise common.RMCError("Core::NotImplemented")
@@ -464,14 +468,15 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         """
         logger.info("unknown1: %s\nunknown2: %s" % (json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
 
-        if len(unknown2) >= 5 and unknown2[0] == "1" and unknown2[4] == "0":
-            fail_rate_min, fail_rate_max = int(unknown2[1]), int(unknown2[2])
-            logger.info("min: {}, max: {}".format(fail_rate_min, fail_rate_max))
+        if len(unknown2) >= 5 and unknown2[0] in ["", "1"] and unknown2[4] == "0":
             if unknown2[3] == "":
                 # Little bit of a hack, in the wild different values have been observed (see method comment).
                 # The workaround is to check if the difficulty parameter is 'close', which might work.
                 def is_close(a, b):
                     return abs(a - b) <= 10
+
+                fail_rate_min, fail_rate_max = int(unknown2[1]), int(unknown2[2])
+                logger.info("min: {}, max: {}".format(fail_rate_min, fail_rate_max))
 
                 logger.info("detected 100 mario")
                 if is_close(fail_rate_min, 0) and is_close(fail_rate_max, 34):  # easy
@@ -529,6 +534,13 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.result = common.Result(0x10001)  # Success
         res.infos = []
         res.results = []
+        return res
+
+    def score_range_cascaded_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (100 mario v16)
+        logger.error("Super Mario Maker version 16 is not working properly, please install version 272!")
+        logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
+        res = []
         return res
 
     def upload_course_record(self, context, param):
