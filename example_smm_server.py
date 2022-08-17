@@ -1,4 +1,5 @@
 
+from typing import List
 from nintendo.nex import backend, service, kerberos, \
     authentication, secure, datastoresmm, common, messagedelivery
 from nintendo.games import SMM
@@ -254,7 +255,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             infos.append(info)
         return infos
 
-    def get_metas_multiple_param(self, context, params: [datastoresmm.DataStoreGetMetaParam]):
+    def get_metas_multiple_param(self, context, params: List[datastoresmm.DataStoreGetMetaParam]):
         logger.info("params: %s" % json.dumps(jsons.dump(params)))
         res = common.RMCResponse()
         res.result = common.Result(0x10001)  # Success
@@ -265,7 +266,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         else:  # get mii data in bulk
             data: datastoresmm.DataStoreGetMetaParam
             for data in params:
-                if data.result_option == 4:  # mii data
+                if data.result_option in [4, 0]:  # mii data (TODO: 0 isn't verified)
                     # TODO: somehow involve the disk database to have proper mii names for course creators
                     mii_data = self.data_provider.get_mii_data_pid(data.persistence_target.owner_id)
                     if not mii_data:
@@ -276,6 +277,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
                 else:
+                    logger.critical(f"result_option: {data.result_option}")
                     raise common.RMCError("Core::NotImplemented")
         return res
 
@@ -500,11 +502,34 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 res = []
                 return res
             else:
-                logger.info("followings_latest_course_search_object with unknown pids {}".format(unknown1.pids))
-                raise common.RMCError("DataStore::NotFound")
+                # TODO: implement (uploaded courses from user)
+                logger.error("followings_latest_course_search_object with unknown pids {}".format(unknown1.pids))
+                res = []
+                return res
         else:
             logger.info("followings_latest_course_search_object with unexpected unknown2 parameter")
             raise common.RMCError("DataStore::InvalidArgument")
+
+    def latest_course_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (Courses -> New Arrivals)
+        logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
+        res = []
+        return res
+
+    def best_score_rate_course_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (Courses -> Star Ranking)
+        logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
+        res = []
+        return res
+
+    def method49(self, context, unknown):
+        # TODO: implement (Makers -> Star Ranking)
+        logger.info(f"unknown: {json.dumps(jsons.dump(unknown))}")
+        res = common.RMCResponse()
+        res.result = common.Result(0x10001)  # Success
+        res.infos = []
+        res.results = []
+        return res
 
     def upload_course_record(self, context, param):
         logger.info("param: {}".format(json.dumps(jsons.dump(param))))

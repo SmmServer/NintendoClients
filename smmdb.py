@@ -237,7 +237,7 @@ def fetch_courses(difficulty, total_required):
             'difficultyfrom': difficulty.value,
             'difficultyto': difficulty.value
         }
-        r_get = requests.get('https://smmdb.ddns.net/api/getcourses', get_params)
+        r_get = requests.get('https://smmdb.net/api/getcourses', get_params)
         if r_get.status_code != 200:
             logger.info('[smmdb] getcourses error {}'.format(r_get.status_code))
         else:
@@ -252,7 +252,7 @@ def fetch_courses(difficulty, total_required):
                     'id': course_id,
                     'type': 'zip'
                 }
-                r_zip = requests.get('https://smmdb.ddns.net/api/downloadcourse', download_params)
+                r_zip = requests.get('https://smmdb.net/api/downloadcourse', download_params)
                 if r_zip.status_code != 200:
                     logger.info('[smmdb] downloadcourse error {} (id: {})'.format(r_zip.status_code, course_id))
                 else:

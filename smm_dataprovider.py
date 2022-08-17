@@ -114,6 +114,15 @@ class SmmDataProvider:
     def get_mii_data_pid(self, pid):
         if pid in self.mii_data_pid:
             return self.mii_data_id[self.mii_data_pid[pid]]
+        # Fake 'Official' creators
+        official_pids = [1770179696, 1770179664, 1770179640, 1770180827, 1770180777, 1770180745, 1770177625, 1770177590]
+        if pid in official_pids:
+            mii_pids = list(self.mii_data_pid)
+            fake_pid = mii_pids[official_pids.index(pid)]
+            fake_id = self.mii_data_pid[fake_pid]
+            data = copy.deepcopy(self.mii_data_id[fake_id])
+            data.owner_id = pid
+            return data
         return None
 
     def get_mii_data_id(self, data_id):
@@ -209,7 +218,7 @@ class SmmDataProvider:
         meta.flag = 0
         meta.referred_time = common.DateTime(135517191018)  # TODO: implement
         meta.expire_time = common.DateTime(135517191018)  # TODO: implement
-        meta.tags = [""]
+        meta.tags = [""] # TODO: 49?
         meta.ratings = []  # TODO: implement
         info.info = meta
         return info
