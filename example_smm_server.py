@@ -1,7 +1,7 @@
 
 from typing import List
 from nintendo.nex import backend, service, kerberos, \
-    authentication, secure, datastoresmm, common, messagedelivery
+    authentication, secure, datastoresmm, common, messagedelivery, streams
 from nintendo.games import SMM
 import collections
 import itertools
@@ -637,10 +637,42 @@ class MessageDeliveryServer(messagedelivery.MessageDeliveryServer):
         self.settings = settings
 
     def deliver_message(self, context, message):
-        logger.info("message: {}".format(json.dumps(jsons.dump(message))))
+        logger.info(f"message: {json.dumps(jsons.dump(message))}")
 
+class MessageRecipient:
+    def load(self, stream: streams.StreamIn):
+        self.recipient_type = stream.u16()
+        self.principal_id = stream.pid()
+        self.gathering_id = stream.u32()
 
-common.DataHolder.register(common.Data, "BinaryMessage")
+    def save(self, stream: streams.StreamOut):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
+
+class UserMessage(common.Data):
+    def load(self, stream: streams.StreamIn):
+        self.id = stream.u32()
+        self.parent_id = stream.u32()
+        self.pid_sender = stream.pid()
+        self.reception_time = stream.datetime()
+        self.life_time = stream.u32()
+        self.flags = stream.u32()
+        self.subject = stream.string()
+        self.sender = stream.string()
+        # TODO: https://github.com/kinnay/NintendoClients/issues/86
+        self.message_recipient = MessageRecipient()
+        self.message_recipient.load(stream)
+
+    def save(self, stream: streams.StreamOut):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
+
+class BinaryMessage(UserMessage):
+    def load(self, stream: streams.StreamIn):
+        self.binary_body = stream.qbuffer()
+
+    def save(self, stream: streams.StreamOut):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
+
+common.DataHolder.register(BinaryMessage, "BinaryMessage")
 
 
 def main():

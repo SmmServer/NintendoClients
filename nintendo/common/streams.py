@@ -77,7 +77,13 @@ class StreamIn:
 		data = self.data[self.pos : self.pos + num]
 		self.pos += num
 		return data
-		
+
+	def peek(self, num=None):
+		if num is None:
+			num = self.available()
+		data = self.data[self.pos : self.pos + num]
+		return data
+
 	def pad(self, num, char=b"\0"):
 		if self.read(num) != char * num:
 			raise ValueError("Incorrect padding")
