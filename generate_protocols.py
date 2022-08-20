@@ -73,6 +73,9 @@ class Tokenizer:
 		elif char == "0":
 			self.number = ""
 			self.state = self.state_number_prefix
+		elif char == "%":
+			self.comment = ""
+			self.state = self.state_comment
 		elif char in NUMBER_CHARS[:10]:
 			self.base = 10
 			self.number = char
@@ -97,7 +100,13 @@ class Tokenizer:
 				self.add(TYPE_NAME, self.name)
 			self.state = self.state_next
 			self.state(char)
-			
+
+	def state_comment(self, char):
+		if char in [CHAR_EOF, "\n"]:
+			self.state = self.state_next
+		else:
+			self.comment += char
+
 	def state_string(self, char):
 		if char == CHAR_EOF:
 			self.error(char)
