@@ -41,7 +41,7 @@ smm_mii_infos = []
 for file in smm_mii_files:
     f = open(file, "rb")
     stream = common.streams.StreamIn(f.read(), settings)
-    infos = stream.list(datastoresmm.DataStoreInfoStuff)
+    infos = stream.list(datastoresmm.DataStoreCustomRankingResult)
     for info in infos:
         smm_mii_infos.append(info)
     f.close()
@@ -57,7 +57,7 @@ course_infos = []
 for file in course_files:
     f = open(file, "rb")
     stream = common.streams.StreamIn(f.read(), settings)
-    infos = stream.list(datastoresmm.DataStoreInfoStuff)
+    infos = stream.list(datastoresmm.DataStoreCustomRankingResult)
     for info in infos:
         course_infos.append(info)
     f.close()

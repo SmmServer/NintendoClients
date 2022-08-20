@@ -457,7 +457,7 @@ AAAAGgAAAAYAFAAAAAEAAAAAAAAAAQAAAAAAAAAAAAAA
 """)
 
     stream = common.streams.StreamIn(data, settings)
-    infos = stream.list(datastoresmm.DataStoreInfoStuff)
+    infos = stream.list(datastoresmm.DataStoreCustomRankingResult)
 
 
 if __name__ == '__main__':

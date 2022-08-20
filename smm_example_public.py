@@ -89,9 +89,9 @@ final_courseurls = []
 
 i = 0
 while i < len(courseids):
-    courseparam = datastoresmm.MethodParam50()
-    courseparam.magic = 0
-    courseparam.unk = 0x27
+    courseparam = datastoresmm.DataStoreGetCustomRankingByDataIdParam()
+    courseparam.application_id = 0
+    courseparam.result_option = 0x27
     courseparam.data_ids = []
     for j in range(0, min(len(courseids) - i, 50)):
         courseparam.data_ids.append(courseids[i + j])
@@ -100,17 +100,17 @@ while i < len(courseids):
     save_stream("coursedatas{}.bin".format(i), lambda s: s.list(coursedatas, s.add))
 
     miiparams = []
-    coursedata: datastoresmm.DataStoreInfoStuff
+    coursedata: datastoresmm.DataStoreCustomRankingResult
     for coursedata in coursedatas:
-        miiparams.append(make_metaparam(coursedata.info.owner_id))
+        miiparams.append(make_metaparam(coursedata.meta_info.owner_id))
 
     miiresponse = client.get_metas_multiple_param(miiparams)
     miidatas, miiresults = miiresponse.infos, miiresponse.results
     save_stream("miidatas{}.bin".format(i), lambda s: s.list(miidatas, s.add))
 
-    smm_miiparam = datastoresmm.MethodParam50()
-    smm_miiparam.magic = 0x11E1A300
-    smm_miiparam.unk = 0x27
+    smm_miiparam = datastoresmm.DataStoreGetCustomRankingByDataIdParam()
+    smm_miiparam.application_id = 0x11E1A300
+    smm_miiparam.result_option = 0x27
     smm_miiparam.data_ids = []
     miidata: datastoresmm.DataStoreMetaInfo
     for miidata in miidatas:
@@ -122,7 +122,7 @@ while i < len(courseids):
 
     for coursedata in coursedatas:
         req_param = datastoresmm.DataStorePrepareGetParam()
-        req_param.data_id = coursedata.info.data_id
+        req_param.data_id = coursedata.meta_info.data_id
         req_param.lock_id = 0
         req_param.persistence_target = datastoresmm.PersistenceTarget()
         req_param.persistence_target.owner_id = 0
@@ -135,20 +135,20 @@ while i < len(courseids):
         logger.info("data_id: {}, URL: {}".format(req_param.data_id, req_info.url))
 
         rankingparam = datastoresmm.UnknownStruct2()
-        rankingparam.data_id = coursedata.info.data_id
+        rankingparam.data_id = coursedata.meta_info.data_id
         rankingparam.unk2 = 0
         rankingdata: datastoresmm.CourseRecordInfo
         rankingdata = client.get_course_record(rankingparam)
-        save_stream("ranking{}.bin".format(coursedata.info.data_id), lambda s: s.add(rankingdata))
+        save_stream("ranking{}.bin".format(coursedata.meta_info.data_id), lambda s: s.add(rankingdata))
 
         best_miiparams = [make_metaparam(rankingdata.world_record_pid), make_metaparam(rankingdata.first_clear_pid)]
         best_miiresponse = client.get_metas_multiple_param(best_miiparams)
         best_miis, best_results = best_miiresponse.infos, best_miiresponse.results
-        save_stream("best_miidatas{}.bin".format(coursedata.info.data_id), lambda s: s.list(best_miis, s.add))
+        save_stream("best_miidatas{}.bin".format(coursedata.meta_info.data_id), lambda s: s.list(best_miis, s.add))
 
-        smm_miiparam = datastoresmm.MethodParam50()
-        smm_miiparam.magic = 0x11E1A300
-        smm_miiparam.unk = 0x27
+        smm_miiparam = datastoresmm.DataStoreGetCustomRankingByDataIdParam()
+        smm_miiparam.application_id = 0x11E1A300
+        smm_miiparam.result_option = 0x27
         smm_miiparam.data_ids = []
         miidata: datastoresmm.DataStoreMetaInfo
         for miidata in best_miis:
@@ -156,13 +156,13 @@ while i < len(courseids):
 
         best_smm_miiresponse = client.get_custom_ranking_by_data_id(smm_miiparam)
         best_smm_miidatas, best_smm_miiresults = best_smm_miiresponse.infos, best_smm_miiresponse.results
-        save_stream("best_smm_miidatas{}.bin".format(coursedata.info.data_id), lambda s: s.list(best_smm_miidatas, s.add))
+        save_stream("best_smm_miidatas{}.bin".format(coursedata.meta_info.data_id), lambda s: s.list(best_smm_miidatas, s.add))
 
         unkparam = datastoresmm.UnknownStruct4()
-        unkparam.data_id = coursedata.info.data_id
+        unkparam.data_id = coursedata.meta_info.data_id
         unkparam.unk2 = 3
         unkdatas = client.get_buffer_queue(unkparam)
-        save_stream("unkdatas{}.bin".format(coursedata.info.data_id), lambda s: s.list(unkdatas, s.qbuffer))
+        save_stream("unkdatas{}.bin".format(coursedata.meta_info.data_id), lambda s: s.list(unkdatas, s.qbuffer))
 
     i += 50
 

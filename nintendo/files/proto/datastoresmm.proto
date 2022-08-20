@@ -150,10 +150,10 @@ protocol DataStoreSmm : 115 {
 		DataStoreChangeMetaCompareParam compare_param;
 	}
 
-	struct DataStoreInfoStuff {
-		uint32 unk1;
-		uint32 stars_received;
-		DataStoreMetaInfo info;
+	struct DataStoreCustomRankingResult {
+		uint32 order;
+		uint32 score;
+		DataStoreMetaInfo meta_info;
 	}
 
 	struct DataStoreFileServerObjectInfo {
@@ -188,10 +188,10 @@ protocol DataStoreSmm : 115 {
 		UnknownStruct unk4;
 	}
 
-	struct MethodParam50 {
-		uint32 magic;
+	struct DataStoreGetCustomRankingByDataIdParam {
+		uint32 application_id;
 		list<uint64> data_ids;
-		uint8 unk;
+		uint8 result_option;
 	}
 
 	struct MethodParam59 {
@@ -223,9 +223,14 @@ protocol DataStoreSmm : 115 {
 		uint8 unk2;
 	}
 
-	struct UnknownStruct4 {
+	struct BufferQueueParam {
 		uint64 data_id;
-		uint32 unk2;
+		uint32 slot;
+	}
+
+	% This is just a workaround for protocol generation, it doesn't actually work
+	struct BufferQueue {
+		list<qbuffer> data;
 	}
 
 	struct UnknownStruct5 {
@@ -265,6 +270,32 @@ protocol DataStoreSmm : 115 {
 		bool unk17;
 	}
 
+	struct ResultRange {
+		uint32 offset;
+		uint32 length;
+	}
+
+	struct DataStoreSearchParam {
+		#revision 1
+		uint8 search_target;
+		list<pid> owner_pids;
+		uint8 owner_type;
+		list<uint64> destination_ids;
+		uint16 data_type;
+		datetime created_after;
+		datetime created_before;
+		datetime updated_after;
+		datetime updated_before;
+		uint32 refer_data_id;
+		list<string> tags;
+		uint8 result_order_column;
+		uint8 result_order;
+		ResultRange result_range;
+		uint8 result_option;
+		uint32 minimal_rating_frequency;
+		bool use_cache;
+	}
+
 	method(8) get_meta(DataStoreGetMetaParam param) {
 		DataStoreMetaInfo info;
 	}
@@ -298,28 +329,35 @@ protocol DataStoreSmm : 115 {
 	method(48) rate_custom_ranking(list<UnknownStruct6> param) { }
 
 	method(49) method49(MethodParam49 param) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 		list<result> results;
 	}
 
-	method(50) get_custom_ranking_by_data_id(MethodParam50 param) {
-		list<DataStoreInfoStuff> infos;
+	method(50) get_custom_ranking_by_data_id(DataStoreGetCustomRankingByDataIdParam param) {
+		list<DataStoreCustomRankingResult> infos;
 		list<result> results;
 	}
 
-	method(52) add_to_buffer_queue;
+	method(52) add_to_buffer_queue(BufferQueueParam param, qbuffer buffer) { }
 
-	method(53) add_to_buffer_queues(list<UnknownStruct4> unknown1, list<qbuffer> unknown2) {
+	method(53) add_to_buffer_queues(list<BufferQueueParam> params, list<qbuffer> buffers) {
 		list<result> results;
 	}
 
-	method(54) get_buffer_queue(UnknownStruct4 param) {
-		list<qbuffer> results;
+	method(54) get_buffer_queue(BufferQueueParam param) {
+		list<qbuffer> buffer_queue;
 	}
 
-	method(55) get_buffer_queues;
 
-	method(56) clear_buffer_queues;
+	method(55) get_buffer_queues(list<BufferQueueParam> params) {
+		% TODO: list<list<qbuffer>> buffer_queues
+		list<BufferQueue> buffer_queues;
+		list<result> results;
+	}
+
+	method(56) clear_buffer_queues(list<BufferQueueParam> params) {
+		list<result> results;
+	}
 
 	method(57) complete_attach_file(DataStoreCompletePostParam param) {
 		string unknown;
@@ -332,7 +370,7 @@ protocol DataStoreSmm : 115 {
 	}
 
 	method(60) conditional_search_object(uint32 unknown1, UnknownStruct7 unknown2, list<string> unknown3) {
-		list<DataStoreInfoStuff> info;
+		list<DataStoreCustomRankingResult> info;
 	}
 
 	method(61) get_application_config(uint32 param) {
@@ -344,23 +382,23 @@ protocol DataStoreSmm : 115 {
 	method(63) delete_application_config;
 
 	method(64) latest_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
-	method(65) followings_latest_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+	method(65) followings_latest_course_search_object(DataStoreSearchParam param, list<string> extra_data) {
+		list<DataStoreCustomRankingResult> ranking_results;
 	}
 
 	method(66) recommended_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
 	method(67) score_range_cascaded_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
 	method(68) suggested_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
 	method(71) upload_course_record(MethodParam71 param) { }
@@ -396,11 +434,11 @@ protocol DataStoreSmm : 115 {
 	method(80) reset_rate_custom_ranking_counter;
 
 	method(81) best_score_rate_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
 	method(82) ctr_pick_up_course_search_object(UnknownStruct7 unknown1, list<string> unknown2) {
-		list<DataStoreInfoStuff> infos;
+		list<DataStoreCustomRankingResult> infos;
 	}
 
 	method(86) search_unknown_platform_objects;

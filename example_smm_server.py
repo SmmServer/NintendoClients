@@ -155,15 +155,18 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         self.settings = settings
         self.data_provider = SmmDataProvider(self.settings)
 
+    def dump(self, data):
+        return json.dumps(jsons.dump(data))
+
     def get_meta(self, context, param):
-        logger.info("param: %s" % json.dumps(jsons.dump(param)))
+        logger.info(f"param: {self.dump(param)}")
         if param.data_id == 0:  # mii data
             owner_id = param.persistence_target.owner_id
             res = self.data_provider.get_mii_data_pid(owner_id)
             if not res:
                 logger.info("get_meta, no info for {}, using fake 1781058687".format(owner_id))
                 res = self.data_provider.get_mii_data_pid(1781058687)
-            res = copy.deepcopy(res.info)
+            res = copy.deepcopy(res.meta_info)
             res.owner_id = param.persistence_target.owner_id
             res.tags = []
             res.ratings = []
@@ -230,14 +233,14 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             res.url = "http://account.nintendo.net/datastore/00000900000-00045"
             res.size = 450068  # hardcoded event course
         else:  # course download url by data_id
-            course_data: datastoresmm.DataStoreInfoStuff
+            course_data: datastoresmm.DataStoreCustomRankingResult
             course_data = self.data_provider.get_course_data(data_id)
             if not course_data:
                 raise common.RMCError("DataStore::NotFound")
             res.url = self.data_provider.get_course_url(data_id)
             if not res.url:
                 raise common.RMCError("DataStore::NotFound")
-            res.size = course_data.info.size
+            res.size = course_data.meta_info.size
         return res
 
     def prepare_get_object(self, context, param):
@@ -272,7 +275,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     mii_data = self.data_provider.get_mii_data_pid(data.persistence_target.owner_id)
                     if not mii_data:
                         raise common.RMCError("DataStore::NotFound")
-                    mii_data = copy.deepcopy(mii_data.info)
+                    mii_data = copy.deepcopy(mii_data.meta_info)
                     mii_data.tags = []
                     mii_data.ratings = []
                     res.infos.append(mii_data)
@@ -339,7 +342,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         6: 0 0 shared / shared (uncertain)
         """
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
-        if param.unk != 0x27:  # Game version?
+        if param.result_option != 0x27:  # Game version?
             logger.info("unknown version!")
             raise common.RMCError("DataStore::InvalidArgument")
 
@@ -357,23 +360,23 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             rating.info.initial_value = initial_value
             return rating
 
-        if param.magic == 300000000:  # Mii data with SMM ratings
+        if param.application_id == 300000000:  # Mii data with SMM ratings
             for data_id in param.data_ids:
-                mii_data: datastoresmm.DataStoreInfoStuff
+                mii_data: datastoresmm.DataStoreCustomRankingResult
                 mii_data = self.data_provider.get_mii_data_id(data_id)
                 if not mii_data:
                     logger.info("get_custom_ranking_by_data_id(mii) unknown data_id: {}".format(data_id))
                     raise common.RMCError("DataStore::NotFound")
                 res.infos.append(mii_data)
                 res.results.append(common.Result(0x690001))
-        elif param.magic == 0:  # Course metadata?
+        elif param.application_id == 0:  # Course metadata?
             if not param.data_ids:
                 # TODO: implement (bookmarks?)
                 param.data_ids = [10000000200]
 
             for data_id in param.data_ids:
                 # definitely involve course metadata!
-                course_data: datastoresmm.DataStoreInfoStuff
+                course_data: datastoresmm.DataStoreCustomRankingResult
                 course_data = self.data_provider.get_course_data(data_id)
                 if not course_data:
                     logger.info("get_custom_ranking_by_data_id(course) unknown data_id: {}".format(data_id))
@@ -388,14 +391,14 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         return res
 
     # called when a course is completed
-    def add_to_buffer_queues(self, context, unknown1, unknown2):
+    def add_to_buffer_queues(self, context, params: List[datastoresmm.BufferQueueParam], buffers: List[bytes]):
         """
         if you die in a course your last death will be in unknown2[2]
         the first two parameters are unclear
         """
-        logger.info("unknown1: %s\nunknown2: %s" % (json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
+        logger.info(f"params: {self.dump(params)}\nbuffers: {self.dump(buffers)}")
         res = []
-        for i in range(0, len(unknown1)):
+        for i in range(0, len(params)):
             res.append(common.Result(0x690001))
         return res
 
@@ -403,15 +406,15 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     # also called before you start a course
     # it looks like coordinates of where people died (those red crosses)
     # this information appears to be provided by add_to_buffer_queues (in the third parameter of unknown2?)
-    def get_buffer_queue(self, context, param):
-        logger.info("param: %s" % json.dumps(jsons.dump(param)))
-        if param.unk2 == 0:  # potentially data ids?
+    def get_buffer_queue(self, context, param: datastoresmm.BufferQueueParam):
+        logger.info(f"param: {self.dump(param)}")
+        if param.slot == 0:  # potentially data ids?
             #TODO: implement (starred courses)
-            logger.info("unk2==0")
+            logger.info("slot==0")
             res = []
             data_id = 10000000200  # data_id of starred course
             res.append(data_id.to_bytes(8, byteorder='little'))
-        elif param.unk2 == 3:  # locations where players last died before they finished the course
+        elif param.slot == 3:  # locations where players last died before they finished the course
             self.data_provider.mark_course_played(param.data_id)  # this also happens to be the point where you know someone played a course
             res = self.data_provider.get_unkdata(param.data_id)
             if res is None:
@@ -428,6 +431,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         if param == 0:
             res = [0x1, 0x32, 0x96, 0x12C, 0x1F4, 0x320, 0x514, 0x7D0, 0xBB8, 0x1388, 0xA, 0x14, 0x1E, 0x28, 0x32, 0x3C, 0x46, 0x50, 0x5A, 0x64, 0x23, 0x4B, 0x23, 0x4B, 0x32, 0x0, 0x3, 0x3, 0x64, 0x6, 0x1, 0x60, 0x5, 0x60, 0x0, 0x7E4, 0x1, 0x1, 0xC, 0x0]
         elif param == 1:
+            # Event courses?
             res = [0x2, 0x6982CC70, 0x6982CC50, 0x6982CC38, 0x6982D0DB, 0x6982D0A9, 0x6982D089, 0x6982C459, 0x6982C436]
         elif param == 2:
             res = [0x7DF, 0xC, 0x16, 0x5, 0x0]
@@ -448,7 +452,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         ["1", "70", "100", "", "0"] # expert(?) (conditions unknown)
         ["1", "96", "100", "", "0"] # super expert
         Rambo6Glaz derived the following:
-        Maybe it’s the minimum and maximum clear rate for the difficulty
+        Maybe it's the minimum and maximum clear rate for the difficulty
         Or fail rate
         Easy: 0-34% fails
         Normal: 0-74% people failed
@@ -499,20 +503,20 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             logger.info("recommended_course_search_object with unexpected unknown2 parameter")
             raise common.RMCError("DataStore::InvalidArgument")
 
-    def followings_latest_course_search_object(self, context, unknown1, unknown2):
-        logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
-        if unknown2 == ["0", "3", "10", "4", "11", "5", "12", "6", "13", "7", "14", "8", "15"]:
-            if unknown1.pids == [1337]:
+    def followings_latest_course_search_object(self, context, param: datastoresmm.DataStoreSearchParam, extra_data: List[str]):
+        logger.info(f"param: {self.dump(param)}, extra_data: {self.dump(extra_data)}")
+        if extra_data == ["0", "3", "10", "4", "11", "5", "12", "6", "13", "7", "14", "8", "15"]:
+            if param.owner_pids == [1337]:
                 # TODO: implement (uploaded course metadata)
                 res = []
                 return res
             else:
                 # TODO: implement (uploaded courses from user)
-                logger.error("followings_latest_course_search_object with unknown pids {}".format(unknown1.pids))
+                logger.error("followings_latest_course_search_object with unknown pids {}".format(param.owner_pids))
                 res = []
                 return res
         else:
-            logger.info("followings_latest_course_search_object with unexpected unknown2 parameter")
+            logger.info("followings_latest_course_search_object with unexpected extra_data parameter")
             raise common.RMCError("DataStore::InvalidArgument")
 
     def latest_course_search_object(self, context, unknown1, unknown2):

@@ -7,6 +7,45 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class BufferQueue(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.data = None
+	
+	def check_required(self, settings):
+		for field in ['data']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.data = stream.list(stream.qbuffer)
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.list(self.data, stream.qbuffer)
+
+
+class BufferQueueParam(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.data_id = None
+		self.slot = None
+	
+	def check_required(self, settings):
+		for field in ['data_id', 'slot']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.data_id = stream.u64()
+		self.slot = stream.u32()
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.u64(self.data_id)
+		stream.u32(self.slot)
+
+
 class CourseRecordInfo(common.Structure):
 	def __init__(self):
 		super().__init__()
@@ -163,6 +202,30 @@ class DataStoreCompletePostParam(common.Structure):
 		stream.bool(self.is_success)
 
 
+class DataStoreCustomRankingResult(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.order = None
+		self.score = None
+		self.meta_info = DataStoreMetaInfo()
+	
+	def check_required(self, settings):
+		for field in ['order', 'score']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.order = stream.u32()
+		self.score = stream.u32()
+		self.meta_info = stream.extract(DataStoreMetaInfo)
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.u32(self.order)
+		stream.u32(self.score)
+		stream.add(self.meta_info)
+
+
 class DataStoreFileServerObjectInfo(common.Structure):
 	def __init__(self):
 		super().__init__()
@@ -182,6 +245,30 @@ class DataStoreFileServerObjectInfo(common.Structure):
 		self.check_required(stream.settings)
 		stream.u64(self.data_id)
 		stream.add(self.info)
+
+
+class DataStoreGetCustomRankingByDataIdParam(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.application_id = None
+		self.data_ids = None
+		self.result_option = None
+	
+	def check_required(self, settings):
+		for field in ['application_id', 'data_ids', 'result_option']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.application_id = stream.u32()
+		self.data_ids = stream.list(stream.u64)
+		self.result_option = stream.u8()
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.u32(self.application_id)
+		stream.list(self.data_ids, stream.u64)
+		stream.u8(self.result_option)
 
 
 class DataStoreGetMetaParam(common.Structure):
@@ -207,30 +294,6 @@ class DataStoreGetMetaParam(common.Structure):
 		stream.add(self.persistence_target)
 		stream.u8(self.result_option)
 		stream.u64(self.access_password)
-
-
-class DataStoreInfoStuff(common.Structure):
-	def __init__(self):
-		super().__init__()
-		self.unk1 = None
-		self.stars_received = None
-		self.info = DataStoreMetaInfo()
-	
-	def check_required(self, settings):
-		for field in ['unk1', 'stars_received']:
-			if getattr(self, field) is None:
-				raise ValueError("No value assigned to required field: %s" %field)
-	
-	def load(self, stream):
-		self.unk1 = stream.u32()
-		self.stars_received = stream.u32()
-		self.info = stream.extract(DataStoreMetaInfo)
-	
-	def save(self, stream):
-		self.check_required(stream.settings)
-		stream.u32(self.unk1)
-		stream.u32(self.stars_received)
-		stream.add(self.info)
 
 
 class DataStoreKeyValue(common.Structure):
@@ -659,6 +722,77 @@ class DataStoreReqPostInfo(common.Structure):
 		stream.buffer(self.root_ca_cert)
 
 
+class DataStoreSearchParam(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.search_target = None
+		self.owner_pids = None
+		self.owner_type = None
+		self.destination_ids = None
+		self.data_type = None
+		self.created_after = None
+		self.created_before = None
+		self.updated_after = None
+		self.updated_before = None
+		self.refer_data_id = None
+		self.tags = None
+		self.result_order_column = None
+		self.result_order = None
+		self.result_range = ResultRange()
+		self.result_option = None
+		self.minimal_rating_frequency = None
+		self.use_cache = None
+	
+	def get_version(self, settings):
+		version = 0
+		version = 1
+		return version
+	
+	def check_required(self, settings):
+		for field in ['search_target', 'owner_pids', 'owner_type', 'destination_ids', 'data_type', 'created_after', 'created_before', 'updated_after', 'updated_before', 'refer_data_id', 'tags', 'result_order_column', 'result_order', 'result_option', 'minimal_rating_frequency', 'use_cache']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.search_target = stream.u8()
+		self.owner_pids = stream.list(stream.pid)
+		self.owner_type = stream.u8()
+		self.destination_ids = stream.list(stream.u64)
+		self.data_type = stream.u16()
+		self.created_after = stream.datetime()
+		self.created_before = stream.datetime()
+		self.updated_after = stream.datetime()
+		self.updated_before = stream.datetime()
+		self.refer_data_id = stream.u32()
+		self.tags = stream.list(stream.string)
+		self.result_order_column = stream.u8()
+		self.result_order = stream.u8()
+		self.result_range = stream.extract(ResultRange)
+		self.result_option = stream.u8()
+		self.minimal_rating_frequency = stream.u32()
+		self.use_cache = stream.bool()
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.u8(self.search_target)
+		stream.list(self.owner_pids, stream.pid)
+		stream.u8(self.owner_type)
+		stream.list(self.destination_ids, stream.u64)
+		stream.u16(self.data_type)
+		stream.datetime(self.created_after)
+		stream.datetime(self.created_before)
+		stream.datetime(self.updated_after)
+		stream.datetime(self.updated_before)
+		stream.u32(self.refer_data_id)
+		stream.list(self.tags, stream.string)
+		stream.u8(self.result_order_column)
+		stream.u8(self.result_order)
+		stream.add(self.result_range)
+		stream.u8(self.result_option)
+		stream.u32(self.minimal_rating_frequency)
+		stream.bool(self.use_cache)
+
+
 class MethodParam49(common.Structure):
 	def __init__(self):
 		super().__init__()
@@ -684,30 +818,6 @@ class MethodParam49(common.Structure):
 		stream.add(self.unk2)
 		stream.u8(self.unk3)
 		stream.add(self.unk4)
-
-
-class MethodParam50(common.Structure):
-	def __init__(self):
-		super().__init__()
-		self.magic = None
-		self.data_ids = None
-		self.unk = None
-	
-	def check_required(self, settings):
-		for field in ['magic', 'data_ids', 'unk']:
-			if getattr(self, field) is None:
-				raise ValueError("No value assigned to required field: %s" %field)
-	
-	def load(self, stream):
-		self.magic = stream.u32()
-		self.data_ids = stream.list(stream.u64)
-		self.unk = stream.u8()
-	
-	def save(self, stream):
-		self.check_required(stream.settings)
-		stream.u32(self.magic)
-		stream.list(self.data_ids, stream.u64)
-		stream.u8(self.unk)
 
 
 class MethodParam59(common.Structure):
@@ -804,6 +914,27 @@ class PersistenceTarget(common.Structure):
 		stream.u16(self.persistence_id)
 
 
+class ResultRange(common.Structure):
+	def __init__(self):
+		super().__init__()
+		self.offset = None
+		self.length = None
+	
+	def check_required(self, settings):
+		for field in ['offset', 'length']:
+			if getattr(self, field) is None:
+				raise ValueError("No value assigned to required field: %s" %field)
+	
+	def load(self, stream):
+		self.offset = stream.u32()
+		self.length = stream.u32()
+	
+	def save(self, stream):
+		self.check_required(stream.settings)
+		stream.u32(self.offset)
+		stream.u32(self.length)
+
+
 class UnknownStruct(common.Structure):
 	def __init__(self):
 		super().__init__()
@@ -844,27 +975,6 @@ class UnknownStruct2(common.Structure):
 		self.check_required(stream.settings)
 		stream.u64(self.data_id)
 		stream.u8(self.unk2)
-
-
-class UnknownStruct4(common.Structure):
-	def __init__(self):
-		super().__init__()
-		self.data_id = None
-		self.unk2 = None
-	
-	def check_required(self, settings):
-		for field in ['data_id', 'unk2']:
-			if getattr(self, field) is None:
-				raise ValueError("No value assigned to required field: %s" %field)
-	
-	def load(self, stream):
-		self.data_id = stream.u64()
-		self.unk2 = stream.u32()
-	
-	def save(self, stream):
-		self.check_required(stream.settings)
-		stream.u64(self.data_id)
-		stream.u32(self.unk2)
 
 
 class UnknownStruct5(common.Structure):
@@ -1179,7 +1289,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		#--- response ---
 		stream = self.client.get_response(call_id)
 		obj = common.RMCResponse()
-		obj.infos = stream.list(DataStoreInfoStuff)
+		obj.infos = stream.list(DataStoreCustomRankingResult)
 		obj.results = stream.list(stream.result)
 		logger.info("DataStoreSmmClient.method49 -> done")
 		return obj
@@ -1194,17 +1304,29 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		#--- response ---
 		stream = self.client.get_response(call_id)
 		obj = common.RMCResponse()
-		obj.infos = stream.list(DataStoreInfoStuff)
+		obj.infos = stream.list(DataStoreCustomRankingResult)
 		obj.results = stream.list(stream.result)
 		logger.info("DataStoreSmmClient.get_custom_ranking_by_data_id -> done")
 		return obj
 	
-	def add_to_buffer_queues(self, unknown1, unknown2):
+	def add_to_buffer_queue(self, param, buffer):
+		logger.info("DataStoreSmmClient.add_to_buffer_queue()")
+		#--- request ---
+		stream, call_id = self.client.init_request(self.PROTOCOL_ID, self.METHOD_ADD_TO_BUFFER_QUEUE)
+		stream.add(param)
+		stream.qbuffer(buffer)
+		self.client.send_message(stream)
+		
+		#--- response ---
+		self.client.get_response(call_id)
+		logger.info("DataStoreSmmClient.add_to_buffer_queue -> done")
+	
+	def add_to_buffer_queues(self, params, buffers):
 		logger.info("DataStoreSmmClient.add_to_buffer_queues()")
 		#--- request ---
 		stream, call_id = self.client.init_request(self.PROTOCOL_ID, self.METHOD_ADD_TO_BUFFER_QUEUES)
-		stream.list(unknown1, stream.add)
-		stream.list(unknown2, stream.qbuffer)
+		stream.list(params, stream.add)
+		stream.list(buffers, stream.qbuffer)
 		self.client.send_message(stream)
 		
 		#--- response ---
@@ -1222,8 +1344,36 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		results = stream.list(stream.qbuffer)
+		buffer_queue = stream.list(stream.qbuffer)
 		logger.info("DataStoreSmmClient.get_buffer_queue -> done")
+		return buffer_queue
+	
+	def get_buffer_queues(self, params):
+		logger.info("DataStoreSmmClient.get_buffer_queues()")
+		#--- request ---
+		stream, call_id = self.client.init_request(self.PROTOCOL_ID, self.METHOD_GET_BUFFER_QUEUES)
+		stream.list(params, stream.add)
+		self.client.send_message(stream)
+		
+		#--- response ---
+		stream = self.client.get_response(call_id)
+		obj = common.RMCResponse()
+		obj.buffer_queues = stream.list(BufferQueue)
+		obj.results = stream.list(stream.result)
+		logger.info("DataStoreSmmClient.get_buffer_queues -> done")
+		return obj
+	
+	def clear_buffer_queues(self, params):
+		logger.info("DataStoreSmmClient.clear_buffer_queues()")
+		#--- request ---
+		stream, call_id = self.client.init_request(self.PROTOCOL_ID, self.METHOD_CLEAR_BUFFER_QUEUES)
+		stream.list(params, stream.add)
+		self.client.send_message(stream)
+		
+		#--- response ---
+		stream = self.client.get_response(call_id)
+		results = stream.list(stream.result)
+		logger.info("DataStoreSmmClient.clear_buffer_queues -> done")
 		return results
 	
 	def complete_attach_file(self, param):
@@ -1263,7 +1413,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		info = stream.list(DataStoreInfoStuff)
+		info = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.conditional_search_object -> done")
 		return info
 	
@@ -1290,23 +1440,23 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.latest_course_search_object -> done")
 		return infos
 	
-	def followings_latest_course_search_object(self, unknown1, unknown2):
+	def followings_latest_course_search_object(self, param, extra_data):
 		logger.info("DataStoreSmmClient.followings_latest_course_search_object()")
 		#--- request ---
 		stream, call_id = self.client.init_request(self.PROTOCOL_ID, self.METHOD_FOLLOWINGS_LATEST_COURSE_SEARCH_OBJECT)
-		stream.add(unknown1)
-		stream.list(unknown2, stream.string)
+		stream.add(param)
+		stream.list(extra_data, stream.string)
 		self.client.send_message(stream)
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		ranking_results = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.followings_latest_course_search_object -> done")
-		return infos
+		return ranking_results
 	
 	def recommended_course_search_object(self, unknown1, unknown2):
 		logger.info("DataStoreSmmClient.recommended_course_search_object()")
@@ -1318,7 +1468,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.recommended_course_search_object -> done")
 		return infos
 	
@@ -1332,7 +1482,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.score_range_cascaded_search_object -> done")
 		return infos
 	
@@ -1346,7 +1496,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.suggested_course_search_object -> done")
 		return infos
 	
@@ -1440,7 +1590,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.best_score_rate_course_search_object -> done")
 		return infos
 	
@@ -1454,7 +1604,7 @@ class DataStoreSmmClient(DataStoreSmmProtocol):
 		
 		#--- response ---
 		stream = self.client.get_response(call_id)
-		infos = stream.list(DataStoreInfoStuff)
+		infos = stream.list(DataStoreCustomRankingResult)
 		logger.info("DataStoreSmmClient.ctr_pick_up_course_search_object -> done")
 		return infos
 	
@@ -1637,7 +1787,7 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 	def handle_get_custom_ranking_by_data_id(self, context, input, output):
 		logger.info("DataStoreSmmServer.get_custom_ranking_by_data_id()")
 		#--- request ---
-		param = input.extract(MethodParam50)
+		param = input.extract(DataStoreGetCustomRankingByDataIdParam)
 		response = self.get_custom_ranking_by_data_id(context, param)
 		
 		#--- response ---
@@ -1650,15 +1800,18 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 		output.list(response.results, output.result)
 	
 	def handle_add_to_buffer_queue(self, context, input, output):
-		logger.warning("DataStoreSmmServer.add_to_buffer_queue is unsupported")
-		raise common.RMCError("Core::NotImplemented")
+		logger.info("DataStoreSmmServer.add_to_buffer_queue()")
+		#--- request ---
+		param = input.extract(BufferQueueParam)
+		buffer = input.qbuffer()
+		self.add_to_buffer_queue(context, param, buffer)
 	
 	def handle_add_to_buffer_queues(self, context, input, output):
 		logger.info("DataStoreSmmServer.add_to_buffer_queues()")
 		#--- request ---
-		unknown1 = input.list(UnknownStruct4)
-		unknown2 = input.list(input.qbuffer)
-		response = self.add_to_buffer_queues(context, unknown1, unknown2)
+		params = input.list(BufferQueueParam)
+		buffers = input.list(input.qbuffer)
+		response = self.add_to_buffer_queues(context, params, buffers)
 		
 		#--- response ---
 		if not isinstance(response, list):
@@ -1668,7 +1821,7 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 	def handle_get_buffer_queue(self, context, input, output):
 		logger.info("DataStoreSmmServer.get_buffer_queue()")
 		#--- request ---
-		param = input.extract(UnknownStruct4)
+		param = input.extract(BufferQueueParam)
 		response = self.get_buffer_queue(context, param)
 		
 		#--- response ---
@@ -1677,12 +1830,30 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 		output.list(response, output.qbuffer)
 	
 	def handle_get_buffer_queues(self, context, input, output):
-		logger.warning("DataStoreSmmServer.get_buffer_queues is unsupported")
-		raise common.RMCError("Core::NotImplemented")
+		logger.info("DataStoreSmmServer.get_buffer_queues()")
+		#--- request ---
+		params = input.list(BufferQueueParam)
+		response = self.get_buffer_queues(context, params)
+		
+		#--- response ---
+		if not isinstance(response, common.RMCResponse):
+			raise RuntimeError("Expected RMCResponse, got %s" %response.__class__.__name__)
+		for field in ['buffer_queues', 'results']:
+			if not hasattr(response, field):
+				raise RuntimeError("Missing field in RMCResponse: %s" %field)
+		output.list(response.buffer_queues, output.add)
+		output.list(response.results, output.result)
 	
 	def handle_clear_buffer_queues(self, context, input, output):
-		logger.warning("DataStoreSmmServer.clear_buffer_queues is unsupported")
-		raise common.RMCError("Core::NotImplemented")
+		logger.info("DataStoreSmmServer.clear_buffer_queues()")
+		#--- request ---
+		params = input.list(BufferQueueParam)
+		response = self.clear_buffer_queues(context, params)
+		
+		#--- response ---
+		if not isinstance(response, list):
+			raise RuntimeError("Expected list, got %s" %response.__class__.__name__)
+		output.list(response, output.result)
 	
 	def handle_complete_attach_file(self, context, input, output):
 		logger.info("DataStoreSmmServer.complete_attach_file()")
@@ -1757,9 +1928,9 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 	def handle_followings_latest_course_search_object(self, context, input, output):
 		logger.info("DataStoreSmmServer.followings_latest_course_search_object()")
 		#--- request ---
-		unknown1 = input.extract(UnknownStruct7)
-		unknown2 = input.list(input.string)
-		response = self.followings_latest_course_search_object(context, unknown1, unknown2)
+		param = input.extract(DataStoreSearchParam)
+		extra_data = input.list(input.string)
+		response = self.followings_latest_course_search_object(context, param, extra_data)
 		
 		#--- response ---
 		if not isinstance(response, list):
@@ -1963,12 +2134,24 @@ class DataStoreSmmServer(DataStoreSmmProtocol):
 		logger.warning("DataStoreSmmServer.get_custom_ranking_by_data_id not implemented")
 		raise common.RMCError("Core::NotImplemented")
 	
+	def add_to_buffer_queue(self, *args):
+		logger.warning("DataStoreSmmServer.add_to_buffer_queue not implemented")
+		raise common.RMCError("Core::NotImplemented")
+	
 	def add_to_buffer_queues(self, *args):
 		logger.warning("DataStoreSmmServer.add_to_buffer_queues not implemented")
 		raise common.RMCError("Core::NotImplemented")
 	
 	def get_buffer_queue(self, *args):
 		logger.warning("DataStoreSmmServer.get_buffer_queue not implemented")
+		raise common.RMCError("Core::NotImplemented")
+	
+	def get_buffer_queues(self, *args):
+		logger.warning("DataStoreSmmServer.get_buffer_queues not implemented")
+		raise common.RMCError("Core::NotImplemented")
+	
+	def clear_buffer_queues(self, *args):
+		logger.warning("DataStoreSmmServer.clear_buffer_queues not implemented")
 		raise common.RMCError("Core::NotImplemented")
 	
 	def complete_attach_file(self, *args):

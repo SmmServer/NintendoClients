@@ -57,34 +57,34 @@ class SmmDataProvider:
     def init_mario100_data(self):
         global smm_mario100
         stream = common.streams.StreamIn(smm_mario100, self.settings)
-        return stream.list(datastoresmm.DataStoreInfoStuff)
+        return stream.list(datastoresmm.DataStoreCustomRankingResult)
 
     def init_mii_data(self):
         global smm_miidata
         global miidata2
         stream = common.streams.StreamIn(smm_miidata, self.settings)
-        infos = stream.list(datastoresmm.DataStoreInfoStuff)
+        infos = stream.list(datastoresmm.DataStoreCustomRankingResult)
         stream = common.streams.StreamIn(miidata2, self.settings)
-        stuff = stream.extract(datastoresmm.DataStoreInfoStuff)
+        stuff = stream.extract(datastoresmm.DataStoreCustomRankingResult)
         infos.append(stuff)
         mii_data_id, mii_data_pid = {}, {}
 
-        info: datastoresmm.DataStoreInfoStuff
+        info: datastoresmm.DataStoreCustomRankingResult
         for info in infos:
-            mii_data_id[info.info.data_id] = info
-            mii_data_pid[info.info.owner_id] = info.info.data_id
+            mii_data_id[info.meta_info.data_id] = info
+            mii_data_pid[info.meta_info.owner_id] = info.meta_info.data_id
         return mii_data_id, mii_data_pid
 
     def init_course_data(self):
         global smm_coursedata
         stream = common.streams.StreamIn(smm_coursedata, self.settings)
-        infos = stream.list(datastoresmm.DataStoreInfoStuff)
+        infos = stream.list(datastoresmm.DataStoreCustomRankingResult)
         course_data = {}
-        info: datastoresmm.DataStoreInfoStuff
+        info: datastoresmm.DataStoreCustomRankingResult
         for info in infos:
-            if info.info.data_id == 21340114:
+            if info.meta_info.data_id == 21340114:
                 continue
-            course_data[info.info.data_id] = info
+            course_data[info.meta_info.data_id] = info
         return course_data
 
     def init_unkdata(self):
@@ -148,7 +148,7 @@ class SmmDataProvider:
         };
         """
         meta_binary = array.array("B")
-        meta_binary.extend(fake_mii.info.meta_binary)
+        meta_binary.extend(fake_mii.meta_info.meta_binary)
         mii_binary = meta_binary[6 * 4:][:96]
 
         mii = MiiData.parse(mii_binary)
@@ -156,7 +156,7 @@ class SmmDataProvider:
         fake_mii_binary = mii.build()
         for i in range(0, len(fake_mii_binary)):
             meta_binary[i + 6 * 4] = fake_mii_binary[i]
-        fake_mii.info.meta_binary = meta_binary.tobytes()
+        fake_mii.meta_info.meta_binary = meta_binary.tobytes()
 
     def construct_fake_miidata(self, name):
         if name in self.fake_mii_name:
@@ -170,9 +170,9 @@ class SmmDataProvider:
         real_keys = list(self.mii_data_id.keys())
         base_key = real_keys[abs(hash(name)) % len(real_keys)]
         fake_mii = copy.deepcopy(self.mii_data_id[base_key])
-        fake_mii.info.data_id = data_id
-        fake_mii.info.owner_id = pid
-        fake_mii.info.name = name  # account id
+        fake_mii.meta_info.data_id = data_id
+        fake_mii.meta_info.owner_id = pid
+        fake_mii.meta_info.name = name  # account id
 
         self.rename_fake_mii(fake_mii, name)
 
@@ -191,9 +191,9 @@ class SmmDataProvider:
         meta_binary = meta_binary.tobytes()
         assert(len(meta_binary) == 44)
 
-        info = datastoresmm.DataStoreInfoStuff()
-        info.unk1 = 0  # as observed in real data
-        info.stars_received = diskmeta["stars"]
+        info = datastoresmm.DataStoreCustomRankingResult()
+        info.order = 0  # as observed in real data
+        info.score = diskmeta["stars"]
         meta = datastoresmm.DataStoreMetaInfo()
         meta.data_id = course_id
         meta.owner_id = self.construct_fake_miidata(diskmeta["maker"])  # TODO: do proper on-disk storage of fake Miis
@@ -220,7 +220,7 @@ class SmmDataProvider:
         meta.expire_time = common.DateTime(135517191018)  # TODO: implement
         meta.tags = [""] # TODO: 49?
         meta.ratings = []  # TODO: implement
-        info.info = meta
+        info.meta_info = meta
         return info
 
     def get_course_data(self, data_id):
