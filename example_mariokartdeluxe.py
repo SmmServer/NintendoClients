@@ -1,14 +1,16 @@
 
-from nintendo.nex import backend, ranking
+from nintendo.nex import backend, authentication, ranking
 from nintendo.games import MK8Deluxe
+from nintendo import settings
 
 TRACK_ID = 10 #Sunshine airport
 
 HOST = "g%08x-lp1.s.n.srv.nintendo.net" %MK8Deluxe.GAME_SERVER_ID
 PORT = 443
 
-backend = backend.BackEndClient("switch.cfg")
-backend.configure(MK8Deluxe.ACCESS_KEY, MK8Deluxe.NEX_VERSION)
+backend = backend.BackEndClient(
+	MK8Deluxe.ACCESS_KEY, MK8Deluxe.NEX_VERSION, settings.Settings("switch.cfg")
+)
 backend.connect(HOST, PORT)
 backend.login_guest()
 
@@ -41,7 +43,7 @@ print("Lowest time:", format_time(stats[3]))
 print("Highest time:", format_time(stats[4]))
 
 print("Rankings:")
-for rankdata in rankings.data:
+for rankdata in rankings.datas:
 	time = format_time(rankdata.score)
 	print("\t%5i   %016X   %s" %(rankdata.rank, rankdata.pid, time))
 

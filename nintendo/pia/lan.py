@@ -14,6 +14,14 @@ import hmac
 import time
 
 import logging
+
+original_hmac_new = hmac.new
+def patched_hmac_new(key, msg=None, digestmod=None):
+    if digestmod is None:
+        digestmod = hashlib.md5
+    return original_hmac_new(key, msg, digestmod)
+hmac.new = patched_hmac_new
+
 logger = logging.getLogger(__name__)
 
 
