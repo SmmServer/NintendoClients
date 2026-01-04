@@ -26,9 +26,7 @@ api.login(USERNAME, PASSWORD)
 
 #Each game server has its own game server id and access token
 nex_token = api.get_nex_token(DKCTF.GAME_SERVER_ID)
-
-backend = backend.BackEndClient()
-backend.configure(DKCTF.ACCESS_KEY, DKCTF.NEX_VERSION)
+backend = backend.BackEndClient(DKCTF.ACCESS_KEY, DKCTF.NEX_VERSION)
 backend.connect(nex_token.host, nex_token.port)
 backend.login(nex_token.username, nex_token.password)
 
@@ -46,7 +44,7 @@ rankings = ranking_client.get_ranking(
 
 print("Total:", rankings.total)
 print("Rankings:")
-for rankdata in rankings.data:
+for rankdata in rankings.datas:
 	seconds = (rankdata.score >> 1) / 60
 	time = "%i:%02i.%02i" %(seconds / 60, seconds % 60, (seconds * 100) % 100)
 	damage = " Damaged " if rankdata.score & 1 else "No damage"
@@ -57,7 +55,7 @@ for rankdata in rankings.data:
 	
 	
 #Now download the world record replay file if available
-world_record = rankings.data[0]
+world_record = rankings.datas[0]
 if world_record.param: #If world record has a replay file	
 	store = datastore.DataStoreClient(backend.secure_client)
 	

@@ -109,13 +109,10 @@ class Structure:
 	def load(self, stream): raise NotImplementedError("%s.load()" %self.__class__.__name__)
 	def save(self, stream): raise NotImplementedError("%s.save()" %self.__class__.__name__)
 	
-
-# This structure has no members, it's only used for the version headers
+	
 class Data(Structure):
-	def save(self, stream: streams.StreamOut):
-		pass
-	def load(self, stream: streams.StreamIn):
-		pass
+	def save(self, stream): pass
+	def load(self, stream): pass
 
 
 class DataHolder:
@@ -134,7 +131,7 @@ class DataHolder:
 		stream.u32(len(substream.get()) + 4)
 		stream.buffer(substream.get())
 		
-	def decode(self, stream: streams.StreamIn):
+	def decode(self, stream):
 		name = stream.string()
 		substream = stream.substream().substream()
 		self.data = substream.extract(self.object_map[name])

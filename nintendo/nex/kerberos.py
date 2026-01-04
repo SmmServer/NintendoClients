@@ -6,6 +6,12 @@ import secrets
 import hashlib
 import hmac
 
+original_hmac_new = hmac.new
+def patched_hmac_new(key, msg=None, digestmod=None):
+    if digestmod is None:
+        digestmod = hashlib.md5
+    return original_hmac_new(key, msg, digestmod)
+hmac.new = patched_hmac_new
 
 class KeyDerivationOld:
 	def __init__(self, base_count, pid_count):

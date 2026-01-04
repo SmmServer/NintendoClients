@@ -1,4 +1,3 @@
-
 from nintendo.nex import common
 from nintendo.common import streams
 
@@ -50,6 +49,10 @@ class StreamOut(streams.StreamOut):
 		self.write(data)
 		
 	def add(self, inst):
+		# --- FIX: Verifica se é None antes de tentar codificar ---
+		if inst is None:
+			return
+		if inst is None: return
 		inst.encode(self)
 		
 	def anydata(self, inst):
