@@ -52,7 +52,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
 		server = get_user_by_name(SECURE_SERVER)
 		
 		url = common.StationURL(
-			scheme="prudps", address="127.0.0.1", port=1224,
+			address="127.0.0.1", port=1224,
 			PID = server.pid, CID = 1, type = 2,
 			sid = 1, stream = 10
 		)
@@ -126,7 +126,7 @@ class FriendsServer(friends.FriendsServer):
 
 
 settings = Settings("friends.cfg")
-settings.set("nex.access_key", Friends.ACCESS_KEY)
+settings.set("server.access_key", Friends.ACCESS_KEY)
 
 auth_server = service.RMCServer(settings)
 auth_server.register_protocol(AuthenticationServer(settings))

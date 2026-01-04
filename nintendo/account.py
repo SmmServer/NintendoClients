@@ -170,7 +170,7 @@ class AccountAPI:
 			"X-Nintendo-Client-ID": "a2efa818a34fa16b8afbc8a74eba3eda",
 			"X-Nintendo-Client-Secret": "c91cdb5658bd4954ade78533a339cf9a",
 			"X-Nintendo-FPD-Version": "0000",
-			"X-Nintendo-Environment": "L1"
+			"X-Nintendo-Environment": "L1",
 		}
 		self.session = requests.Session()
 		self.baseurl = "https://account.nintendo.net/v1/api/"
