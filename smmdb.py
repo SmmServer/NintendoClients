@@ -42,6 +42,40 @@ BASE_SMMDB_DIR = os.path.join(CURRENT_DIR, 'www', 'smmdb')
 BASE_CW_DIR = os.path.join(CURRENT_DIR, 'www', 'courseworld')
 TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
 
+"""
+typedef unsigned char uint8;
+typedef unsigned short uint16;
+typedef unsigned int uint32;
+
+/*
+The level format is 4 chunks that start with ASH0:
+- chunk1: thumbnail0.tnl (compressed)
+- chunk2: course_data.cdt (compressed)
+- chunk3: course_data_sub.cdt (compressed)
+- chunk4: thumbnail1.tnl (compressed)
+See https://github.com/PretendoNetwork/ASH0 for decompression code.
+See https://github.com/Treeki/MarioUnmaker/blob/master/FormatNotes.md for decompressed level format.
+*/
+
+BigEndian();
+struct MetaBinarySmm {
+    uint32 unk1; // observed values: 1, 2, 3
+    uint32 chunk2_theme; // Course theme (0 = overworld, 1 = underground, 2 = castle, 3 = airship, 4 = water, 5 = ghost house)
+
+    uint32 chunk2_size; // course_data.cdt (compressed)
+    uint32 chunk3_size; // course_data_sub.cdt (compressed)
+    uint32 chunk1_size; // thumbnail0.tnl (compressed)
+    uint32 chunk4_size; // thumbnail1.tnl (compressed)
+
+    uint32 unk3; // observed values: 1, 2, 3
+
+    uint32 chunk2_crc32; // course_data.cdt (compressed)
+    uint32 chunk3_crc32; // course_data_sub.cdt (compressed)
+    uint32 chunk1_crc32; // thumbnail0.tnl (compressed)
+    uint32 chunk4_crc32; // thumbnail1.tnl (compressed)
+};
+"""
+
 def get_settings():
     config = configparser.ConfigParser()
     try:
@@ -186,7 +220,7 @@ class MetaBinary:
 
 def mkdir(d): os.makedirs(d, exist_ok=True)
 def create_dirs():
-    for i in range(4): 
+    for i in range(4):
         mkdir(os.path.join(BASE_SMMDB_DIR, str(i)))
         mkdir(os.path.join(BASE_CW_DIR, str(i)))
     mkdir(TMP_DIR)
@@ -208,7 +242,7 @@ class CacheManager:
         self.log_queue = log_queue
         self.current_page_courses = []
         self.is_bootstrapping = False
-        self.current_source_type = 'SMMDB' 
+        self.current_source_type = 'SMMDB'
         self.session = get_session()
         create_dirs()
 
@@ -251,7 +285,7 @@ class CacheManager:
                 self.log("Starting Bootstrap...")
                 self.is_bootstrapping = True
                 if self.progress_queue: self.progress_queue.put(("Bootstrapping Cache", 0, 20))
-                
+
                 if self.fetch_new_page():
                     self.process_batch(20, "Bootstrapping Cache")
                 else:
@@ -264,7 +298,7 @@ class CacheManager:
                 self.log("Offline. Bootstrap skipped.")
 
         self.log("Entering main loop.")
-        
+
         while True:
             try:
                 new_source = get_settings()
@@ -275,7 +309,7 @@ class CacheManager:
 
                 unplayed = self.get_unplayed_count(Difficulty.Normal)
                 target = 80
-                
+
                 if unplayed < target:
                     download_possible = False
                     if is_online():
@@ -284,13 +318,13 @@ class CacheManager:
                                 download_possible = True
                         else:
                             download_possible = True
-                    
+
                     if download_possible:
                          self.process_batch(5, "Background Caching")
                     else:
                         total_courses = self.get_total_count(Difficulty.Normal)
                         if total_courses > 0:
-                            time.sleep(60) 
+                            time.sleep(60)
                             continue
 
             except Exception as e:
@@ -305,22 +339,22 @@ class CacheManager:
                 page_num = random.randint(0, 88024)
                 url = f"https://gitlab.com/lsouzaperfeito/smmserver/-/raw/main/page_{page_num}.json"
                 self.log(f"Requesting index: {url}")
-                
+
                 r = self.session.get(url, timeout=20)
                 r.raise_for_status()
-                
+
                 self.current_page_courses = r.json()
                 self.log(f"Fetched {len(self.current_page_courses)} courses from CourseWorld.")
                 return True
             else:
                 url = 'https://smmdb.net/api/getcourses'
                 self.log(f"Querying SMMDB API...")
-                
+
                 temp_headers = self.session.headers.copy()
                 temp_headers.pop('User-Agent', None)
                 r = self.session.get(url, params={'limit': 100, 'random': 1}, timeout=20, headers=temp_headers)
                 r.raise_for_status()
-                
+
                 self.current_page_courses = r.json()
                 self.log(f"Fetched {len(self.current_page_courses)} courses from SMMDB.")
                 return True
@@ -340,22 +374,22 @@ class CacheManager:
             course = self.current_page_courses.pop(0)
             if self.download_and_process(course):
                 fetched += 1
-                if self.progress_queue and self.is_bootstrapping: 
+                if self.progress_queue and self.is_bootstrapping:
                      self.progress_queue.put((p_type, fetched, count))
 
     def download_and_process(self, course):
         if 'id' not in course: return False
-            
+
         course_id = course['id']
         index = get_next_index()
         dest_folder = BASE_CW_DIR if self.current_source_type == 'CourseWorld' else BASE_SMMDB_DIR
         basedir = os.path.join(dest_folder, str(Difficulty.Normal.value))
         mkdir(basedir)
-        
+
         try:
             if self.current_source_type == 'CourseWorld':
                 archive_url = f"https://web.archive.org/web/0id_/{course_id}"
-                
+
                 data = None
                 download_success = False
                 try:
@@ -367,16 +401,16 @@ class CacheManager:
                         self.log(f"HTTP {r.status_code}: {archive_url}")
                 except Exception as ex:
                     self.log(f"Error: {ex}")
-                
+
                 time.sleep(1)
-                
+
                 if not download_success or not data: return False
                 if data[:15].strip().lower().startswith(b'<!doctype'): return False
-                
+
                 separator = b'ASH0'
                 starts = [m.start() for m in re.finditer(separator, data)]
                 if len(starts) != 4: return False
-                
+
                 try:
                     chunks = [data[starts[i]:starts[i+1]] for i in range(3)] + [data[starts[3]:]]
                     for part in chunks:
@@ -386,7 +420,7 @@ class CacheManager:
                 basename = os.path.join(basedir, f'{index:011d}-00001')
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
                 with open(basename, 'wb') as f: f.write(data)
-                
+
                 self.log(f"SAVED: {index}")
                 return True
 
@@ -405,7 +439,7 @@ class CacheManager:
                 basename = os.path.join(basedir, f'{index:011d}-00001')
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
                 with open(basename, 'wb') as f: f.write(c1 + c2 + c3 + c4)
-                
+
                 self.log(f"SAVED: {index}")
                 return True
         except Exception as e:

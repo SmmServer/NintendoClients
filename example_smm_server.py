@@ -18,6 +18,8 @@ import requests
 import os
 import configparser
 
+
+# https://stackoverflow.com/a/44175370/1806760
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s: %(message)s",
     level=logging.INFO,
@@ -31,6 +33,7 @@ users = [
     User(2, "Quazal Rendez-Vous", "password"),
     User(100, "guest", "MMQea3n!fsik"),
     User(1337, "1337", "password"),
+    # More accounts here
 ]
 
 
@@ -176,7 +179,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             res.ratings = []
             logger.info("res: %s" % json.dumps(jsons.dump(res)))
             return res
-        elif param.data_id == 900000:
+        elif param.data_id == 900000:  # when you click 'Play' this is requested, appears to be some dummy data
             res = datastoresmm.DataStoreMetaInfo()
             res.data_id = 900000
             res.owner_id = 2
@@ -213,14 +216,14 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
     def prepare_attach_file(self, context, param):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
-        
+
         info = datastoresmm.DataStoreReqPostInfo()
-        info.data_id = 123456789 
+        info.data_id = 123456789
         info.url = "http://127.0.0.1:8383/smm/upload"
         info.headers = []
         info.form = []
         info.root_ca_cert = b""
-        
+
         logger.info(f"Redirecting upload to: {info.url}")
         return info
 
@@ -239,8 +242,8 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.headers = []
         if data_id == 900000:
             res.url = "http://account.nintendo.net/datastore/00000900000-00045"
-            res.size = 450068
-        else:
+            res.size = 450068  # hardcoded event course
+        else:  # course download url by data_id
             course_data: datastoresmm.DataStoreInfoStuff
             course_data = self.data_provider.get_course_data(data_id)
             if not course_data:
@@ -270,15 +273,16 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def get_metas_multiple_param(self, context, params: List[datastoresmm.DataStoreGetMetaParam]):
         logger.info("params: %s" % json.dumps(jsons.dump(params)))
         res = common.RMCResponse()
-        res.result = common.Result(0x10001)
+        res.result = common.Result(0x10001)  # Success
         res.infos = []
         res.results = []
-        if not params:
+        if not params:  # empty params -> empty response (wtf, smm actually sends this request)
             pass
-        else:
+        else:  # get mii data in bulk
             data: datastoresmm.DataStoreGetMetaParam
             for data in params:
-                if data.result_option in [4, 0]:
+                if data.result_option in [4, 0]:  # mii data (TODO: 0 isn't verified)
+                    # TODO: somehow involve the disk database to have proper mii names for course creators
                     mii_data = self.data_provider.get_mii_data_pid(data.persistence_target.owner_id)
                     if not mii_data:
                         raise common.RMCError("DataStore::NotFound")
@@ -287,7 +291,8 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     mii_data.ratings = []
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
-                elif data.result_option == 6:
+                elif data.result_option == 6:  # event courses
+                    # TODO: implement
                     pass
                 else:
                     logger.critical(f"result_option: {data.result_option}")
@@ -298,9 +303,12 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
 
     def rate_objects(self, context, targets, params, transactional, fetch_ratings):
-        logger.info("rate_objects called")
+        """
+        Adds to the rating slot for either course or mii info
+        """
+        logger.info("targets: %s\nparams: %s\ntransactional: %s\nfetch_ratings: %s" % (json.dumps(jsons.dump(targets)), json.dumps(jsons.dump(params)), transactional, fetch_ratings))
         res = common.RMCResponse()
-        res.result = common.Result(0x10001)
+        res.result = common.Result(0x10001)  # Success
         res.ratings = []
         res.results = []
         for i in range(0, len(targets)):
@@ -310,7 +318,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def rate_custom_ranking(self, context, param):
         logger.info(f"Intercepted Star/Rating batch of {len(param)} items")
         source = get_course_source()
-        
+
         if source == 'CourseWorld':
             logger.info("Course Source is CourseWorld. Voting disabled.")
             rmcResponse = common.RMCResponse()
@@ -322,7 +330,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
             config.read(ini_path)
             api_key = config.get('General', 'SmmdbApiKey', fallback='')
-            
+
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Origin': 'https://smmdb.net',
@@ -339,7 +347,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
                 if p.data_id in processed_ids:
                     continue
-                
+
                 processed_ids.add(p.data_id)
 
                 course_path = self.data_provider.get_course_filename(p.data_id)
@@ -351,7 +359,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                             if 'id' in data:
                                 smmdb_id = data['id']
                                 logger.info(f"Sending STAR vote for SMMDB ID: {smmdb_id} (WiiU ID: {p.data_id})")
-                                
+
                                 try:
                                     r = requests.post(f"https://smmdb.net/api/starcourse?id={smmdb_id}", headers=headers, timeout=5)
                                     logger.info(f"SMMDB Vote Response: {r.status_code}")
@@ -366,23 +374,53 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         except Exception as e:
             logger.error(f"Error in rate_custom_ranking: {e}")
-        
+
         rmcResponse = common.RMCResponse()
         rmcResponse.result = common.Result(0x10001)
         return rmcResponse
 
     def get_custom_ranking_by_data_id(self, context, param):
+        """
+        Appears to get Mii data, but with SMM ratings(?) and tags
+        It also gets course metadata?
+
+        Rating slot information (for Mii/player data):
+        0: 1529 1529 -> courses played / courses played
+        1: 1153 1153 -> courses cleared / courses cleared
+        2: 608 608 -> unknown / unknown
+        3: 5732 1529 -> total plays / courses played
+        4: 4579 1529 -> lives lost / courses played
+        5: 0 0 -> normal clears / normal clears
+        6: 0 0 -> unknown
+        7: 1 1 -> easy clears / easy clears
+        8: 0 0 -> unknown
+        Tag is a country string. Known values:
+        ["1"] -> Japan
+        ["97"] -> Poland
+        ["49"] -> USA
+        ["77"] -> France
+        ["78"] -> Germany
+
+        Rating slot information (for Courses):
+        0: 40 40 plays / plays
+        1: 843 40
+        2: 38 40 clears / plays
+        3: 59 40 attempts / plays
+        4: 21 40 fails / plays
+        5: 39 39 recent players / recent players
+        6: 0 0 shared / shared (uncertain)
+        """
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
-        if param.unk != 0x27:
+        if param.unk != 0x27:  # Game version?
             logger.info("unknown version!")
             raise common.RMCError("DataStore::InvalidArgument")
 
         res = common.RMCResponse()
-        res.result = common.Result(0x10001)
+        res.result = common.Result(0x10001)  # Success
         res.infos = []
         res.results = []
 
-        if param.magic == 300000000:
+        if param.magic == 300000000:  # Mii data with SMM ratings
             for data_id in param.data_ids:
                 mii_data: datastoresmm.DataStoreInfoStuff
                 mii_data = self.data_provider.get_mii_data_id(data_id)
@@ -391,11 +429,13 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     raise common.RMCError("DataStore::NotFound")
                 res.infos.append(mii_data)
                 res.results.append(common.Result(0x690001))
-        elif param.magic == 0:
+        elif param.magic == 0:  # Course metadata?
             if not param.data_ids:
+                # TODO: implement (bookmarks?)
                 param.data_ids = [10000000200]
 
             for data_id in param.data_ids:
+                # definitely involve course metadata!
                 course_data: datastoresmm.DataStoreInfoStuff
                 course_data = self.data_provider.get_course_data(data_id)
                 if not course_data:
@@ -409,16 +449,25 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         return res
 
+    # called when a course is completed
     def add_to_buffer_queues(self, context, unknown1, unknown2):
+        """
+        if you die in a course your last death will be in unknown2[2]
+        the first two parameters are unclear
+        """
         logger.info("unknown1: %s\nunknown2: %s" % (json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         res = []
         for i in range(0, len(unknown1)):
             res.append(common.Result(0x690001))
         return res
 
+    # called if you click 'Course World'
+    # also called before you start a course
+    # it looks like coordinates of where people died (those red crosses)
+    # this information appears to be provided by add_to_buffer_queues (in the third parameter of unknown2?)
     def get_buffer_queue(self, context, param):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
-        
+
         # Hide voters/deaths for CourseWorld source
         source = get_course_source()
         if source == 'CourseWorld':
@@ -430,8 +479,8 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             res = []
             data_id = 10000000200
             res.append(data_id.to_bytes(8, byteorder='little'))
-        elif param.unk2 == 3:
-            self.data_provider.mark_course_played(param.data_id)
+        elif param.unk2 == 3:  # locations where players last died before they finished the course
+            self.data_provider.mark_course_played(param.data_id)  # this also happens to be the point where you know someone played a course
             res = self.data_provider.get_unkdata(param.data_id)
             if res is None:
                 logger.info("get_buffer_queue, fake unknown data (empty)")
@@ -447,6 +496,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         if param == 0:
             res = [0x1, 0x32, 0x96, 0x12C, 0x1F4, 0x320, 0x514, 0x7D0, 0xBB8, 0x1388, 0xA, 0x14, 0x1E, 0x28, 0x32, 0x3C, 0x46, 0x50, 0x5A, 0x64, 0x23, 0x4B, 0x23, 0x4B, 0x32, 0x0, 0x3, 0x3, 0x64, 0x6, 0x1, 0x60, 0x5, 0x60, 0x0, 0x7E4, 0x1, 0x1, 0xC, 0x0]
         elif param == 1:
+            # Event courses?
             res = [0x2, 0x6982CC70, 0x6982CC50, 0x6982CC38, 0x6982D0DB, 0x6982D0A9, 0x6982D089, 0x6982C459, 0x6982C436]
         elif param == 2:
             res = [0x7DF, 0xC, 0x16, 0x5, 0x0]
@@ -456,10 +506,41 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         return res
 
     def recommended_course_search_object(self, context, unknown1, unknown2):
+        """
+        Function related to 100 Mario Challenge and course browser
+        Observed values:
+        ["1", "0", "34", "", "0"]   # easy
+        ["1", "0", "29", "", "0"]   # easy(?) (conditions unknown)
+        ["1", "0", "74", "", "0"]   # normal
+        ["1", "0", "69", "", "0"]   # normal(?) (conditions unknown)
+        ["1", "75", "95", "", "0"]  # expert
+        ["1", "70", "100", "", "0"] # expert(?) (conditions unknown)
+        ["1", "96", "100", "", "0"] # super expert
+        Rambo6Glaz derived the following:
+        Maybe it's the minimum and maximum clear rate for the difficulty
+        Or fail rate
+        Easy: 0-34% fails
+        Normal: 0-74% people failed
+        Expert: 75-95%
+        Super expert: 95-100%
+        It would actually make sense considering the average success rate for expert and super-expert.
+        For the last course of easy it looks like:
+        ["1", "0", "34", "", "0", "12"]
+        so far it is unclear what this parameter is about
+
+        When using course browser (highlights):
+        ["", "", "", "0", "0"]       # Filter: all
+        ["1", "0", "34", "0", "0"]   # Filter: easy
+        ["1", "35", "74", "0", "0"]  # Filter: normal
+        ["1", "75", "95", "0", "0"]  # Filter: expert
+        ["1", "96", "100", "0", "0"] # Filter: super expert
+        """
         logger.info("unknown1: %s\nunknown2: %s" % (json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
 
         if len(unknown2) >= 5 and unknown2[0] in ["", "1"] and unknown2[4] == "0":
             if unknown2[3] == "":
+                # Little bit of a hack, in the wild different values have been observed (see method comment).
+                # The workaround is to check if the difficulty parameter is 'close', which might work.
                 def is_close(a, b):
                     return abs(a - b) <= 10
 
@@ -467,13 +548,13 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 logger.info("min: {}, max: {}".format(fail_rate_min, fail_rate_max))
 
                 logger.info("detected 100 mario")
-                if is_close(fail_rate_min, 0) and is_close(fail_rate_max, 34):
+                if is_close(fail_rate_min, 0) and is_close(fail_rate_max, 34):  # easy
                     difficulty = 0
-                elif is_close(fail_rate_min, 0) and is_close(fail_rate_max, 74):
+                elif is_close(fail_rate_min, 0) and is_close(fail_rate_max, 74):  # normal
                     difficulty = 1
-                elif is_close(fail_rate_min, 75) and is_close(fail_rate_max, 95):
+                elif is_close(fail_rate_min, 75) and is_close(fail_rate_max, 95):  # expert
                     difficulty = 2
-                elif is_close(fail_rate_min, 96) and is_close(fail_rate_max, 100):
+                elif is_close(fail_rate_min, 96) and is_close(fail_rate_max, 100):  # super expert
                     difficulty = 3
                 else:
                     raise common.RMCError("DataStore::InvalidArgument")
@@ -493,6 +574,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 res = []
                 return res
             else:
+                # TODO: implement (uploaded courses from user)
                 logger.error("followings_latest_course_search_object with unknown pids {}".format(unknown1.pids))
                 res = []
                 return res
@@ -501,24 +583,28 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             raise common.RMCError("DataStore::InvalidArgument")
 
     def latest_course_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (Courses -> New Arrivals)
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         res = []
         return res
 
     def best_score_rate_course_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (Courses -> Star Ranking)
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         res = []
         return res
 
     def method49(self, context, unknown):
+        # TODO: implement (Makers -> Star Ranking)
         logger.info(f"unknown: {json.dumps(jsons.dump(unknown))}")
         res = common.RMCResponse()
-        res.result = common.Result(0x10001)
+        res.result = common.Result(0x10001)  # Success
         res.infos = []
         res.results = []
         return res
 
     def score_range_cascaded_search_object(self, context, unknown1, unknown2):
+        # TODO: implement (100 mario v16)
         logger.error("Super Mario Maker version 16 is not working properly, please install version 272!")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         res = []
@@ -528,6 +614,9 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         logger.info("param: {}".format(json.dumps(jsons.dump(param))))
 
     def get_course_record(self, context, param):
+        """
+        Method that fetched the current record
+        """
         logger.info("get_course_record({})".format(json.dumps(jsons.dump(param))))
         if param.unk2 == 0:
             ranking = self.data_provider.get_ranking(param.data_id)
@@ -535,11 +624,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 logger.info("get_course_record, fake ranking")
                 res = datastoresmm.CourseRecordInfo()
                 res.data_id = param.data_id
-                res.unk2 = 0
+                res.unk2 = 0  # uncleared?
                 res.first_clear_pid = 1781058687
                 res.world_record_pid = 1781058687
                 res.world_record = 40320
-                res.first_clear_date = common.DateTime(0x6A28CC7F)
+                res.first_clear_date = common.DateTime(0x6A28CC7F)  # or null for uncleared date?
                 res.world_record_date = common.DateTime(0x6A28CC7F)
                 return res
             else:
@@ -549,6 +638,9 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             raise common.RMCError("DataStore::InvalidArgument")
 
     def get_application_config_string(self, context, param):
+        """
+        Probably a function related to a word blacklist.
+        """
         logger.info("param: %u (0x%X)" % (param, param))
         if param == 128:
             res = [u"けされ", u"消され", u"削除され", u"リセットされ", u"BANされ", u"ＢＡＮされ", u"キミのコース", u"君のコース", u"きみのコース", u"い い ね", u"遊びます", u"地震", u"震災", u"被災", u"津波", u"バンされ", u"い~ね", u"震度", u"じしん", u"banされ", u"くわしくは", u"詳しくは", u"ちんちん", u"ち0こ", u"bicth", u"い.い．ね", u"ナイ～ス", u"い&い", u"い-いね", u"いぃね", u"nigger", u"ngger", u"star if u", u"Star if u", u"Star if you", u"star if you", u"PENlS", u"マンコ", u"butthole", u"LILI", u"vagina", u"vagyna", u"うんち", u"うんこ", u"ウンコ", u"Ｉｉｎｅ", u"EENE", u"まんこ", u"ウンチ", u"niglet", u"nigglet", u"please like", u"きんたま", u"Butthole", u"llね", u"iいね", u"give a star", u"ちんぽ", u"亀頭", u"penis", u"ｳﾝｺ", u"plz more stars", u"star plz", u"い()ね", u"PLEASE star", u"Bitte Sterne"]
@@ -570,15 +662,16 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.unknown = []
         res.results = []
         if unknown == [] and get_meta_param.data_id == 0 and get_meta_param.result_option == 4:
+            # TODO: implement (nobody knows)
             res.infos.append(self.data_provider.get_course_data(10000000200))
 
             record = datastoresmm.CourseRecordInfo()
-            record.data_id = 10000000200
-            record.unk2 = 0
+            record.data_id = 10000000200  # TODO
+            record.unk2 = 0  # uncleared?
             record.first_clear_pid = 1781058687
             record.world_record_pid = 1781058687
             record.world_record = 40320
-            record.first_clear_date = common.DateTime(0x6A28CC7F)
+            record.first_clear_date = common.DateTime(0x6A28CC7F)  # or null for uncleared date?
             record.world_record_date = common.DateTime(0x6A28CC7F)
             res.unknown.append(record)
 
@@ -607,8 +700,40 @@ class MessageDeliveryServer(messagedelivery.MessageDeliveryServer):
         self.settings = settings
 
     def deliver_message(self, context, message):
-        logger.info("message: {}".format(json.dumps(jsons.dump(message))))
+        logger.info(f"message: {jsons.dump(message)}")
 
+class MessageRecipient:
+    def load(self, stream):
+        self.recipient_type = stream.u16()
+        self.principal_id = stream.pid()
+        self.gathering_id = stream.u32()
+
+    def save(self, stream):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
+
+class UserMessage(common.Data):
+    def load(self, stream):
+        self.id = stream.u32()
+        self.parent_id = stream.u32()
+        self.pid_sender = stream.pid()
+        self.reception_time = stream.datetime()
+        self.life_time = stream.u32()
+        self.flags = stream.u32()
+        self.subject = stream.string()
+        self.sender = stream.string()
+        # TODO: https://github.com/kinnay/NintendoClients/issues/86
+        self.message_recipient = MessageRecipient()
+        self.message_recipient.load(stream)
+
+    def save(self, stream):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
+
+class BinaryMessage(UserMessage):
+    def load(self, stream):
+        self.binary_body = stream.qbuffer()
+
+    def save(self, stream):
+        raise NotImplementedError("%s.save()" % self.__class__.__name__)
 
 common.DataHolder.register(common.Data, "BinaryMessage")
 
