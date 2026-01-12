@@ -241,7 +241,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.data_id = data_id
         res.headers = []
         if data_id == 900000:
-            res.url = "http://account.nintendo.net/datastore/00000900000-00045"
+            res.url = "http://127.0.0.1:8383/datastore/00000900000-00045"
             res.size = 450068  # hardcoded event course
         else:  # course download url by data_id
             course_data: datastoresmm.DataStoreInfoStuff
