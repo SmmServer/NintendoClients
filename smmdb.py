@@ -40,6 +40,7 @@ else:
 SETTINGS_INI_PATH = os.path.join(ROOT_DIR, 'Configs', 'settings.ini')
 BASE_SMMDB_DIR = os.path.join(CURRENT_DIR, 'www', 'smmdb')
 BASE_CW_DIR = os.path.join(CURRENT_DIR, 'www', 'courseworld')
+LISTS_DIR = os.path.join(CURRENT_DIR, 'www', 'lists') 
 TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
 
 """
@@ -224,6 +225,7 @@ def create_dirs():
         mkdir(os.path.join(BASE_SMMDB_DIR, str(i)))
         mkdir(os.path.join(BASE_CW_DIR, str(i)))
     mkdir(TMP_DIR)
+    mkdir(LISTS_DIR)
 
 def get_next_index():
     max_index = 9999999999
@@ -244,6 +246,7 @@ class CacheManager:
         self.is_bootstrapping = False
         self.current_source_type = 'SMMDB'
         self.session = get_session()
+        self.fetched_ids_in_batch = []
         create_dirs()
 
     def log(self, message):
@@ -279,23 +282,23 @@ class CacheManager:
         unplayed_count = self.get_unplayed_count(Difficulty.Normal)
         self.log(f"Unplayed courses found: {unplayed_count}")
 
-        if unplayed_count == 0:
-            self.log("Cache empty for this source.")
-            if is_online():
-                self.log("Starting Bootstrap...")
+        if is_online():
+            if unplayed_count < 50:
+                self.log(f"Bootstrapping Cache ({self.current_source_type})...")
                 self.is_bootstrapping = True
-                if self.progress_queue: self.progress_queue.put(("Bootstrapping Cache", 0, 20))
-
-                if self.fetch_new_page():
-                    self.process_batch(20, "Bootstrapping Cache")
-                else:
-                    self.log("Bootstrap failed.")
-
-                if self.progress_queue: self.progress_queue.put(("Bootstrapping Cache", 20, 20))
+                
+                if self.fetch_new_page(order="uploaded"):
+                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Uploaded)")
+                    
+                if self.fetch_new_page(order="stars"):
+                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Stars)")
+                
+                if self.fetch_new_page(order="random"):
+                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Random)")
+                
                 self.is_bootstrapping = False
-                self.log("Bootstrap finished.")
             else:
-                self.log("Offline. Bootstrap skipped.")
+                self.log(f"Skipping bootstrap. Found {unplayed_count} unplayed courses (Enough).")
 
         self.log("Entering main loop.")
 
@@ -314,7 +317,15 @@ class CacheManager:
                     download_possible = False
                     if is_online():
                         if not self.current_page_courses:
-                            if self.fetch_new_page():
+                            dice = random.random()
+                            if dice < 0.2:
+                                mode = "uploaded"
+                            elif dice < 0.4:
+                                mode = "stars"
+                            else:
+                                mode = "random"
+                                
+                            if self.fetch_new_page(order=mode):
                                 download_possible = True
                         else:
                             download_possible = True
@@ -332,8 +343,11 @@ class CacheManager:
 
             time.sleep(5)
 
-    def fetch_new_page(self):
+    def fetch_new_page(self, order="random"):
         current_source = self.current_source_type
+        self.fetched_ids_in_batch = []
+        self.current_order_mode = order
+
         try:
             if current_source == 'CourseWorld':
                 page_num = random.randint(0, 88024)
@@ -348,11 +362,20 @@ class CacheManager:
                 return True
             else:
                 url = 'https://smmdb.net/api/getcourses'
-                self.log(f"Querying SMMDB API...")
+                params = {'limit': 100}
+                
+                if order == "uploaded":
+                    params['order'] = "uploaded"
+                elif order == "stars":
+                    params['order'] = "stars"
+                elif order == "random":
+                    pass
+
+                self.log(f"Querying SMMDB API ({order})...")
 
                 temp_headers = self.session.headers.copy()
                 temp_headers.pop('User-Agent', None)
-                r = self.session.get(url, params={'limit': 100, 'random': 1}, timeout=20, headers=temp_headers)
+                r = self.session.get(url, params=params, timeout=20, headers=temp_headers)
                 r.raise_for_status()
 
                 self.current_page_courses = r.json()
@@ -372,13 +395,49 @@ class CacheManager:
         fetched = 0
         while fetched < count and self.current_page_courses:
             course = self.current_page_courses.pop(0)
-            if self.download_and_process(course):
+            saved_id = self.download_and_process(course)
+            if saved_id:
                 fetched += 1
+                self.fetched_ids_in_batch.append(saved_id)
                 if self.progress_queue and self.is_bootstrapping:
                      self.progress_queue.put((p_type, fetched, count))
+        
+        if self.current_source_type == 'SMMDB' and self.current_order_mode in ["uploaded", "stars"]:
+            self.update_list_file(self.current_order_mode)
+
+    def update_list_file(self, mode):
+        filename = "new_arrivals.json" if mode == "uploaded" else "star_ranking.json"
+        path = os.path.join(LISTS_DIR, filename)
+        
+        existing = []
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f: existing = json.load(f)
+            except: pass
+        
+        new_list = []
+        seen = set()
+        
+        for i in self.fetched_ids_in_batch:
+            if i not in seen:
+                new_list.append(i)
+                seen.add(i)
+        
+        for i in existing:
+            if i not in seen:
+                new_list.append(i)
+                seen.add(i)
+                
+        new_list = new_list[:200]
+        
+        try:
+            with open(path, 'w') as f: json.dump(new_list, f)
+            self.log(f"Updated list {filename} with {len(self.fetched_ids_in_batch)} new items.")
+        except Exception as e:
+            self.log(f"Failed to save list {filename}: {e}")
 
     def download_and_process(self, course):
-        if 'id' not in course: return False
+        if 'id' not in course: return None
 
         course_id = course['id']
         index = get_next_index()
@@ -404,25 +463,25 @@ class CacheManager:
 
                 time.sleep(1)
 
-                if not download_success or not data: return False
-                if data[:15].strip().lower().startswith(b'<!doctype'): return False
+                if not download_success or not data: return None
+                if data[:15].strip().lower().startswith(b'<!doctype'): return None
 
                 separator = b'ASH0'
                 starts = [m.start() for m in re.finditer(separator, data)]
-                if len(starts) != 4: return False
+                if len(starts) != 4: return None
 
                 try:
                     chunks = [data[starts[i]:starts[i+1]] for i in range(3)] + [data[starts[3]:]]
                     for part in chunks:
                         if not ash0_decompress(part): raise ValueError("Corrupt")
-                except: return False
+                except: return None
 
                 basename = os.path.join(basedir, f'{index:011d}-00001')
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
                 with open(basename, 'wb') as f: f.write(data)
 
                 self.log(f"SAVED: {index}")
-                return True
+                return index
 
             else:
                 download_url = f'https://smmdb.net/api/downloadcourse?id={course_id}&type=zip'
@@ -441,10 +500,10 @@ class CacheManager:
                 with open(basename, 'wb') as f: f.write(c1 + c2 + c3 + c4)
 
                 self.log(f"SAVED: {index}")
-                return True
+                return index
         except Exception as e:
             self.log(f"Failed {course_id}: {e}")
-            return False
+            return None
 
 def start_cache_worker(p_queue, l_queue):
     mgr = CacheManager(p_queue, l_queue)

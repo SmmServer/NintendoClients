@@ -170,9 +170,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         if param.data_id == 0:
             owner_id = param.persistence_target.owner_id
             res = self.data_provider.get_mii_data_pid(owner_id)
+            
             if not res:
-                logger.info("get_meta, no info for {}, using fake 1781058687".format(owner_id))
-                res = self.data_provider.get_mii_data_pid(1781058687)
+                logger.warning("get_meta, no info for {}, using fallback generator".format(owner_id))
+                res = self.data_provider._generate_dummy_mii(owner_id, "Unknown Maker")
+            
             res = copy.deepcopy(res.info)
             res.owner_id = param.persistence_target.owner_id
             res.tags = []
@@ -282,17 +284,17 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             data: datastoresmm.DataStoreGetMetaParam
             for data in params:
                 if data.result_option in [4, 0]:  # mii data (TODO: 0 isn't verified)
-                    # TODO: somehow involve the disk database to have proper mii names for course creators
                     mii_data = self.data_provider.get_mii_data_pid(data.persistence_target.owner_id)
+                    
                     if not mii_data:
-                        raise common.RMCError("DataStore::NotFound")
+                         mii_data = self.data_provider._generate_dummy_mii(data.persistence_target.owner_id)
+                         
                     mii_data = copy.deepcopy(mii_data.info)
                     mii_data.tags = []
                     mii_data.ratings = []
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
                 elif data.result_option == 6:  # event courses
-                    # TODO: implement
                     pass
                 else:
                     logger.critical(f"result_option: {data.result_option}")
@@ -425,10 +427,15 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 mii_data: datastoresmm.DataStoreInfoStuff
                 mii_data = self.data_provider.get_mii_data_id(data_id)
                 if not mii_data:
-                    logger.info("get_custom_ranking_by_data_id(mii) unknown data_id: {}".format(data_id))
-                    raise common.RMCError("DataStore::NotFound")
-                res.infos.append(mii_data)
-                res.results.append(common.Result(0x690001))
+                    logger.info("get_custom_ranking_by_data_id(mii) generating dummy for: {}".format(data_id))
+                    pass 
+                
+                if mii_data:
+                    res.infos.append(mii_data)
+                    res.results.append(common.Result(0x690001))
+                else:
+                     raise common.RMCError("DataStore::NotFound")
+
         elif param.magic == 0:  # Course metadata?
             if not param.data_ids:
                 # TODO: implement (bookmarks?)
@@ -468,7 +475,6 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def get_buffer_queue(self, context, param):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
 
-        # Hide voters/deaths for CourseWorld source
         source = get_course_source()
         if source == 'CourseWorld':
              logger.info("Course Source is CourseWorld. Hiding buffer queue (voters/deaths).")
@@ -584,15 +590,15 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
     def latest_course_search_object(self, context, unknown1, unknown2):
         # TODO: implement (Courses -> New Arrivals)
+        logger.info("Requesting New Arrivals")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
-        res = []
-        return res
+        return self.data_provider.get_new_arrivals()
 
     def best_score_rate_course_search_object(self, context, unknown1, unknown2):
         # TODO: implement (Courses -> Star Ranking)
+        logger.info("Requesting Star Ranking")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
-        res = []
-        return res
+        return self.data_provider.get_star_ranking()
 
     def method49(self, context, unknown):
         # TODO: implement (Makers -> Star Ranking)

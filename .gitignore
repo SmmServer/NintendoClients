@@ -2,5 +2,5 @@
 !/www/datastore/readme.txt
 /www/smmdb/*
 !/www/smmdb/readme.txt
-
+/www/lists/*
 __pycache__/
