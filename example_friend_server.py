@@ -1,4 +1,3 @@
-
 from nintendo.nex import backend, service, kerberos, \
     authentication, secure, friends, common
 from nintendo.games import Friends
@@ -8,6 +7,9 @@ import secrets
 import time
 import argparse
 import logging
+import configparser
+import os
+import sys
 
 # https://stackoverflow.com/a/44175370/1806760
 logging.basicConfig(
@@ -15,6 +17,29 @@ logging.basicConfig(
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
+
+# Config setup to match SMM server logic
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    ROOT_DIR = os.path.dirname(sys.executable)
+else:
+    ROOT_DIR = os.path.dirname(os.path.dirname(CURRENT_DIR))
+
+CONFIGS_DIR = os.path.join(ROOT_DIR, 'Configs')
+INI_PATH = os.path.join(CONFIGS_DIR, 'Pretendo++.ini')
+
+def get_bind_ip():
+    config = configparser.ConfigParser()
+    try:
+        if os.path.exists(INI_PATH):
+            config.read(INI_PATH)
+            if config.has_section('00003200'):
+                return config.get('00003200', 'host', fallback='127.0.5.1')
+    except:
+        pass
+    return '127.0.5.1'
+
+BIND_IP = get_bind_ip()
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -167,7 +192,7 @@ class FriendsServer(friends.FriendsServer):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-host", default="127.0.0.1", help="hostname/ip to host the server on")
+    parser.add_argument("-host", default=BIND_IP, help="hostname/ip to host the server on")
     parser.add_argument("-pid", type=int, help="additional user pid")
     parser.add_argument("-username", help="additional user username")
     parser.add_argument("-password", help="additional user password")

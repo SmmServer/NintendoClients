@@ -12,6 +12,7 @@ import hmac
 import hashlib
 import zlib
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,8 @@ class SmmDataProvider:
         return None
         
     def get_course_url(self, data_id):
-        return f"http://127.0.0.1:8383/smm/course/{data_id}"
+        ip = "127.0.0.1" if sys.platform == 'darwin' else "127.0.5.1"
+        return f"http://{ip}:8383/smm/course/{data_id}"
 
     def mark_course_played(self, data_id):
         filename = self.get_course_filename(data_id)

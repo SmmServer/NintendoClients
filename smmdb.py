@@ -242,65 +242,88 @@ class CacheManager:
     def __init__(self, progress_queue=None, log_queue=None):
         self.progress_queue = progress_queue
         self.log_queue = log_queue
-        self.current_page_courses = []
-        self.is_bootstrapping = False
-        self.current_source_type = 'SMMDB'
         self.session = get_session()
-        self.fetched_ids_in_batch = []
+        self.current_source_type = 'SMMDB'
+        self.downloaded_batch = []
+        self.is_bootstrapping = False
         create_dirs()
 
     def log(self, message):
         msg_str = f"[CacheManager] {message}"
-        if self.log_queue: self.log_queue.put(("Debug", msg_str))
         print(msg_str, flush=True)
 
-    def get_unplayed_count(self, difficulty):
+    def log_status(self, message):
+        """Dedicated log function for status updates to bypass generic prefixing"""
+        print(f"[CacheStatus] {message}", flush=True)
+
+    def get_random_count(self, difficulty):
         source = get_settings()
+        
+        exclude_ids = set()
+        if source != 'CourseWorld':
+            for list_file in ["new_arrivals.json", "star_ranking.json"]:
+                path = os.path.join(LISTS_DIR, list_file)
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r') as f:
+                            exclude_ids.update(json.load(f))
+                    except: pass
+
         target_dir = BASE_CW_DIR if source == 'CourseWorld' else BASE_SMMDB_DIR
         count = 0
         path = os.path.join(target_dir, str(difficulty.value))
+        
         if os.path.exists(path):
-            count = sum(1 for f in os.listdir(path) if f.endswith('-00001') and not os.path.exists(os.path.join(path, f + '.played')))
+            for f in os.listdir(path):
+                if f.endswith('-00001') and not os.path.exists(os.path.join(path, f + '.played')):
+                    try:
+                        idx_str = f.split('-')[0]
+                        idx = int(idx_str)
+                        if idx not in exclude_ids:
+                            count += 1
+                    except: pass
         return count
 
-    def get_total_count(self, difficulty):
-        source = get_settings()
-        target_dir = BASE_CW_DIR if source == 'CourseWorld' else BASE_SMMDB_DIR
-        count = 0
-        path = os.path.join(target_dir, str(difficulty.value))
-        if os.path.exists(path):
-            count = sum(1 for f in os.listdir(path) if f.endswith('-00001'))
-        return count
+    def get_list_count(self, list_name):
+        path = os.path.join(LISTS_DIR, list_name)
+        if not os.path.exists(path): return 0
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+                return len(data)
+        except: return 0
 
     def start_worker(self):
         Thread(target=self.worker_loop, daemon=True).start()
+    
+    def perform_status_update(self):
+        if self.current_source_type == 'CourseWorld':
+            count = self.get_random_count(Difficulty.Normal)
+            self.log_status(f"Status: {count} unplayed courses available.")
+        else:
+            rnd = self.get_random_count(Difficulty.Normal)
+            upl = self.get_list_count("new_arrivals.json")
+            sta = self.get_list_count("star_ranking.json")
+            self.log_status(f"Status: Random={rnd}, Uploaded={upl}, Stars={sta} unplayed courses available.")
 
     def worker_loop(self):
         self.current_source_type = get_settings()
         self.log(f"Active source: {self.current_source_type}")
 
-        unplayed_count = self.get_unplayed_count(Difficulty.Normal)
-        self.log(f"Unplayed courses found: {unplayed_count}")
-
         if is_online():
-            if unplayed_count < 50:
-                self.log(f"Bootstrapping Cache ({self.current_source_type})...")
-                self.is_bootstrapping = True
-                
-                if self.fetch_new_page(order="uploaded"):
-                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Uploaded)")
-                    
-                if self.fetch_new_page(order="stars"):
-                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Stars)")
-                
-                if self.fetch_new_page(order="random"):
-                    self.process_batch(20, f"Bootstrapping Cache ({self.current_source_type}, Random)")
-                
-                self.is_bootstrapping = False
+            self.is_bootstrapping = True
+            if self.current_source_type == 'CourseWorld':
+                 self.ensure_pool("CourseWorld", "random", 20) 
             else:
-                self.log(f"Skipping bootstrap. Found {unplayed_count} unplayed courses (Enough).")
-
-        self.log("Entering main loop.")
+                 self.ensure_pool("Random", "random", 20)
+                 self.ensure_pool("New Arrivals", "uploaded", 20)
+                 self.ensure_pool("Star Ranking", "stars", 20)
+            self.is_bootstrapping = False
+            
+            # Immediate status update after bootstrapping
+            self.perform_status_update()
+        
+        last_status_log = time.time()
 
         while True:
             try:
@@ -310,38 +333,51 @@ class CacheManager:
                     self.current_source_type = new_source
                     self.current_page_courses = []
 
-                unplayed = self.get_unplayed_count(Difficulty.Normal)
-                target = 80
+                if is_online():
+                    # Check timer and update status
+                    if time.time() - last_status_log > 5:
+                        self.perform_status_update()
+                        last_status_log = time.time()
 
-                if unplayed < target:
-                    download_possible = False
-                    if is_online():
-                        if not self.current_page_courses:
-                            dice = random.random()
-                            if dice < 0.2:
-                                mode = "uploaded"
-                            elif dice < 0.4:
-                                mode = "stars"
-                            else:
-                                mode = "random"
-                                
-                            if self.fetch_new_page(order=mode):
-                                download_possible = True
-                        else:
-                            download_possible = True
-
-                    if download_possible:
-                         self.process_batch(5, "Background Caching")
+                    if self.current_source_type == 'CourseWorld':
+                         self.maintain_pool_logic("CourseWorld", "random", 80)
                     else:
-                        total_courses = self.get_total_count(Difficulty.Normal)
-                        if total_courses > 0:
-                            time.sleep(60)
-                            continue
+                         self.maintain_pool_logic("Random", "random", 80)
+                         self.maintain_pool_logic("New Arrivals", "uploaded", 40)
+                         self.maintain_pool_logic("Star Ranking", "stars", 40)
+
+                else:
+                    self.log("Offline. Sleeping...")
 
             except Exception as e:
                 self.log(f"Loop error: {e}")
 
-            time.sleep(5)
+            time.sleep(60)
+
+    def ensure_pool(self, name, order_mode, target):
+        count = 0
+        if order_mode == "random":
+            count = self.get_random_count(Difficulty.Normal)
+        else:
+            filename = "new_arrivals.json" if order_mode == "uploaded" else "star_ranking.json"
+            count = self.get_list_count(filename)
+        
+        if count < target:
+            if self.fetch_new_page(order=order_mode):
+                self.process_batch(target - count, f"Bootstrapping {name} cache")
+
+    def maintain_pool_logic(self, name, order_mode, target):
+        count = 0
+        filename = None
+        if order_mode == "random":
+            count = self.get_random_count(Difficulty.Normal)
+        else:
+            filename = "new_arrivals.json" if order_mode == "uploaded" else "star_ranking.json"
+            count = self.get_list_count(filename)
+
+        if count < target:
+            if self.fetch_new_page(order=order_mode):
+                self.process_batch(target - count, f"Refilling {name}")
 
     def fetch_new_page(self, order="random"):
         current_source = self.current_source_type
@@ -352,13 +388,11 @@ class CacheManager:
             if current_source == 'CourseWorld':
                 page_num = random.randint(0, 88024)
                 url = f"https://gitlab.com/lsouzaperfeito/smmserver/-/raw/main/page_{page_num}.json"
-                self.log(f"Requesting index: {url}")
 
                 r = self.session.get(url, timeout=20)
                 r.raise_for_status()
 
                 self.current_page_courses = r.json()
-                self.log(f"Fetched {len(self.current_page_courses)} courses from CourseWorld.")
                 return True
             else:
                 url = 'https://smmdb.net/api/getcourses'
@@ -369,9 +403,7 @@ class CacheManager:
                 elif order == "stars":
                     params['order'] = "stars"
                 elif order == "random":
-                    pass
-
-                self.log(f"Querying SMMDB API ({order})...")
+                    params['random'] = 1
 
                 temp_headers = self.session.headers.copy()
                 temp_headers.pop('User-Agent', None)
@@ -379,7 +411,6 @@ class CacheManager:
                 r.raise_for_status()
 
                 self.current_page_courses = r.json()
-                self.log(f"Fetched {len(self.current_page_courses)} courses from SMMDB.")
                 return True
 
         except requests.exceptions.RequestException as e:
@@ -428,7 +459,7 @@ class CacheManager:
                 new_list.append(i)
                 seen.add(i)
                 
-        new_list = new_list[:200]
+        new_list = new_list[:40] 
         
         try:
             with open(path, 'w') as f: json.dump(new_list, f)
@@ -478,7 +509,10 @@ class CacheManager:
 
                 basename = os.path.join(basedir, f'{index:011d}-00001')
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
-                with open(basename, 'wb') as f: f.write(data)
+                with open(basename, 'wb') as f: 
+                    f.write(data)
+                    f.flush()
+                    os.fsync(f.fileno())
 
                 self.log(f"SAVED: {index}")
                 return index
@@ -497,7 +531,10 @@ class CacheManager:
                 course['meta_binary_b64'] = base64.b64encode(meta.to_bytes()).decode('ascii')
                 basename = os.path.join(basedir, f'{index:011d}-00001')
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
-                with open(basename, 'wb') as f: f.write(c1 + c2 + c3 + c4)
+                with open(basename, 'wb') as f: 
+                    f.write(c1 + c2 + c3 + c4)
+                    f.flush()
+                    os.fsync(f.fileno())
 
                 self.log(f"SAVED: {index}")
                 return index
@@ -508,3 +545,7 @@ class CacheManager:
 def start_cache_worker(p_queue, l_queue):
     mgr = CacheManager(p_queue, l_queue)
     mgr.start_worker()
+
+if __name__ == "__main__":
+    mgr = CacheManager()
+    mgr.worker_loop()

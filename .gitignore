@@ -3,4 +3,6 @@
 /www/smmdb/*
 !/www/smmdb/readme.txt
 /www/lists/*
+/www/tmp/*
+/www/courseworld/*
 __pycache__/

@@ -16,6 +16,7 @@ from smm_dataprovider import SmmDataProvider
 import pathlib
 import requests
 import os
+import sys
 import configparser
 
 
@@ -25,6 +26,13 @@ logging.basicConfig(
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger(__name__)
+
+def get_bind_ip():
+    if sys.platform == 'darwin':
+        return '127.0.0.1'
+    return '127.0.5.1'
+
+BIND_IP = get_bind_ip()
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -221,7 +229,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         info = datastoresmm.DataStoreReqPostInfo()
         info.data_id = 123456789
-        info.url = "http://127.0.0.1:8383/smm/upload"
+        info.url = f"http://{BIND_IP}:8383/smm/upload"
         info.headers = []
         info.form = []
         info.root_ca_cert = b""
@@ -231,7 +239,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
     def complete_attach_file(self, context, param):
         logger.info("Upload completed by client. Returning success URL.")
-        return "http://127.0.0.1:8383/smm/upload_success"
+        return f"http://{BIND_IP}:8383/smm/upload_success"
 
     def complete_post_object(self, context, param):
         logger.info("complete_post_object called.")
@@ -243,7 +251,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.data_id = data_id
         res.headers = []
         if data_id == 900000:
-            res.url = "http://127.0.0.1:8383/datastore/00000900000-00045"
+            res.url = f"http://{BIND_IP}:8383/datastore/00000900000-00045"
             res.size = 450068  # hardcoded event course
         else:  # course download url by data_id
             course_data: datastoresmm.DataStoreInfoStuff
@@ -478,6 +486,9 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         source = get_course_source()
         if source == 'CourseWorld':
              logger.info("Course Source is CourseWorld. Hiding buffer queue (voters/deaths).")
+             # Still need to mark as played even for CourseWorld
+             if param.unk2 == 3:
+                self.data_provider.mark_course_played(param.data_id)
              return []
 
         if param.unk2 == 0:
@@ -589,13 +600,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             raise common.RMCError("DataStore::InvalidArgument")
 
     def latest_course_search_object(self, context, unknown1, unknown2):
-        # TODO: implement (Courses -> New Arrivals)
         logger.info("Requesting New Arrivals")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         return self.data_provider.get_new_arrivals()
 
     def best_score_rate_course_search_object(self, context, unknown1, unknown2):
-        # TODO: implement (Courses -> Star Ranking)
         logger.info("Requesting Star Ranking")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
         return self.data_provider.get_star_ranking()
@@ -746,7 +755,7 @@ common.DataHolder.register(common.Data, "BinaryMessage")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-host", default="127.0.0.1", help="hostname/ip to host the server on")
+    parser.add_argument("-host", default=BIND_IP, help="hostname/ip to host the server on")
     parser.add_argument("-pid", type=int, help="additional user pid")
     parser.add_argument("-username", help="additional user username")
     parser.add_argument("-password", help="additional user password")
