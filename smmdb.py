@@ -306,21 +306,41 @@ class CacheManager:
             sta = self.get_list_count("star_ranking.json")
             self.log_status(f"Status: Random={rnd}, Uploaded={upl}, Stars={sta} unplayed courses available.")
 
+    def are_pools_ready(self):
+        if self.current_source_type == 'CourseWorld':
+            return self.get_random_count(Difficulty.Normal) >= 20
+        else:
+            rnd = self.get_random_count(Difficulty.Normal) >= 20
+            upl = self.get_list_count("new_arrivals.json") >= 20
+            sta = self.get_list_count("star_ranking.json") >= 20
+            return rnd and upl and sta
+
     def worker_loop(self):
         self.current_source_type = get_settings()
         self.log(f"Active source: {self.current_source_type}")
 
         if is_online():
-            self.is_bootstrapping = True
-            if self.current_source_type == 'CourseWorld':
-                 self.ensure_pool("CourseWorld", "random", 20) 
-            else:
-                 self.ensure_pool("Random", "random", 20)
-                 self.ensure_pool("New Arrivals", "uploaded", 20)
-                 self.ensure_pool("Star Ranking", "stars", 20)
-            self.is_bootstrapping = False
+            # Only run bootstrap if data is missing
+            if not self.are_pools_ready():
+                self.is_bootstrapping = True
+                
+                # Blocks UI
+                if self.progress_queue:
+                    self.progress_queue.put(("BOOT_START", None))
+                    
+                if self.current_source_type == 'CourseWorld':
+                     self.ensure_pool("CourseWorld General", "random", 20) 
+                else:
+                     self.ensure_pool("Random", "random", 20)
+                     self.ensure_pool("New Arrivals", "uploaded", 20)
+                     self.ensure_pool("Star Ranking", "stars", 20)
+                
+                self.is_bootstrapping = False
             
-            # Immediate status update after bootstrapping
+            # Release UI
+            if self.progress_queue:
+                self.progress_queue.put(("BOOT_END", None))
+
             self.perform_status_update()
         
         last_status_log = time.time()
@@ -377,7 +397,7 @@ class CacheManager:
 
         if count < target:
             if self.fetch_new_page(order=order_mode):
-                self.process_batch(target - count, f"Refilling {name}")
+                self.process_batch(target - count, f"{name}")
 
     def fetch_new_page(self, order="random"):
         current_source = self.current_source_type
@@ -430,8 +450,9 @@ class CacheManager:
             if saved_id:
                 fetched += 1
                 self.fetched_ids_in_batch.append(saved_id)
+                
                 if self.progress_queue and self.is_bootstrapping:
-                     self.progress_queue.put((p_type, fetched, count))
+                     self.progress_queue.put(("PROGRESS", (p_type, fetched, count)))
         
         if self.current_source_type == 'SMMDB' and self.current_order_mode in ["uploaded", "stars"]:
             self.update_list_file(self.current_order_mode)
