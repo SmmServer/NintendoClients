@@ -13,6 +13,7 @@ import hashlib
 import zlib
 import logging
 import sys
+import configparser
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,27 @@ class SmmDataProvider:
         self.fake_mii_pid = 2000000000
         self.fake_mii_name = {}
         self.list_offsets = {} 
+
+    def get_active_source_dirs(self):
+        """
+        Reads settings.ini to determine which folders to scan.
+        This prevents mixing SMMDB courses with CourseWorld courses.
+        """
+        config = configparser.ConfigParser()
+        # Navigate up to find settings.ini based on standard structure
+        ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
+        
+        source = 'SMMDB' # Default
+        try:
+            if os.path.exists(ini_path):
+                config.read(ini_path)
+                source = config.get('General', 'CourseSource', fallback='SMMDB')
+        except: pass
+
+        if source == 'CourseWorld':
+            return [smmdb.BASE_CW_DIR]
+        else:
+            return [smmdb.BASE_SMMDB_DIR]
 
     def init_mario100_data(self):
         if not smm_mario100: return []
@@ -220,10 +242,17 @@ class SmmDataProvider:
 
     def get_course_filename(self, data_id):
         expected = "{:011d}-00001".format(data_id)
-        for base in [smmdb.BASE_SMMDB_DIR, smmdb.BASE_CW_DIR]:
-            for root, _, files in os.walk(base):
-                for file in files:
-                    if file.endswith(expected): return os.path.join(root, file)
+        
+        # Only check the active source folder!
+        active_bases = self.get_active_source_dirs()
+        
+        for base in active_bases:
+            for i in range(4):
+                path = os.path.join(base, str(i))
+                if os.path.exists(path):
+                    fpath = os.path.join(path, expected)
+                    if os.path.exists(fpath):
+                        return fpath
         return None
         
     def get_course_url(self, data_id):
@@ -240,13 +269,13 @@ class SmmDataProvider:
         try:
             path = os.path.join(smmdb.LISTS_DIR, list_name)
             if not os.path.exists(path):
-                return self.get_random_courses_by_difficulty(1, limit)
+                return self.get_random_courses_mixed(limit)
                 
             with open(path, 'r') as f:
                 ids = json.load(f)
             
             if not ids:
-                return self.get_random_courses_by_difficulty(1, limit)
+                return self.get_random_courses_mixed(limit)
 
             current_offset = self.list_offsets.get(list_name, 0)
             
@@ -268,13 +297,13 @@ class SmmDataProvider:
             
             if len(result) < limit:
                 needed = limit - len(result)
-                result.extend(self.get_random_courses_by_difficulty(1, needed))
+                result.extend(self.get_random_courses_mixed(needed))
                 
             return result
 
         except Exception as e:
             logger.error(f"Error reading list {list_name}: {e}")
-            return self.get_random_courses_by_difficulty(1, limit)
+            return self.get_random_courses_mixed(limit)
 
     def get_new_arrivals(self):
         return self.get_courses_from_list("new_arrivals.json", 10)
@@ -282,10 +311,13 @@ class SmmDataProvider:
     def get_star_ranking(self):
         return self.get_courses_from_list("star_ranking.json", 10)
 
-    def get_random_courses_by_difficulty(self, difficulty, amount):
-        diff_value = difficulty.value if hasattr(difficulty, 'value') else difficulty
-        bases_to_check = [smmdb.BASE_SMMDB_DIR, smmdb.BASE_CW_DIR]
-        unplayed_candidates = []
+    def get_random_courses_mixed(self, amount):
+        """
+        Mixes courses from ALL difficulties for Highlights, excluding those already in lists.
+        Only scans the active source type.
+        """
+        bases_to_check = self.get_active_source_dirs()
+        candidates = []
         
         excluded_ids = set()
         for list_name in ["new_arrivals.json", "star_ranking.json"]:
@@ -298,6 +330,39 @@ class SmmDataProvider:
             except: pass
 
         for base in bases_to_check:
+            for diff in range(4):
+                path = os.path.join(base, str(diff))
+                if os.path.exists(path):
+                    for f in os.listdir(path):
+                        if f.endswith('-00001'):
+                            try:
+                                cid = int(f.split('-')[0])
+                                if cid == 10000000200 or cid in excluded_ids:
+                                    continue
+                                candidates.append(cid)
+                            except: continue
+
+        if not candidates:
+            return []
+        
+        sample_ids = random.sample(candidates, min(amount, len(candidates)))
+        result = []
+        for cid in sample_ids:
+            data = self.get_course_data(cid)
+            if data:
+                result.append(data)
+        return result
+
+    def get_random_courses_by_difficulty(self, difficulty, amount):
+        """
+        Strict difficulty fetch for 100 Mario.
+        Only scans the active source type.
+        """
+        diff_value = difficulty.value if hasattr(difficulty, 'value') else difficulty
+        bases_to_check = self.get_active_source_dirs()
+        unplayed_candidates = []
+        
+        for base in bases_to_check:
             path = os.path.join(base, str(diff_value))
             if os.path.exists(path):
                 for f in os.listdir(path):
@@ -305,9 +370,7 @@ class SmmDataProvider:
                     if f.endswith('-00001'):
                         try:
                             cid = int(f.split('-')[0])
-                            
-                            if cid in excluded_ids:
-                                continue
+                            if cid == 10000000200: continue
                             
                             if not os.path.exists(course_path + '.played'):
                                 unplayed_candidates.append(course_path)
@@ -316,7 +379,18 @@ class SmmDataProvider:
         final_candidates = unplayed_candidates
 
         if not final_candidates:
-            print("[Dataprovider] Not enough unplayed random courses. Waiting for smmdb.py to download more.")
+            # Fallback to replaying played courses if run out
+            for base in bases_to_check:
+                path = os.path.join(base, str(diff_value))
+                if os.path.exists(path):
+                    for f in os.listdir(path):
+                         if f.endswith('-00001'):
+                            cid = int(f.split('-')[0])
+                            if cid == 10000000200: continue
+                            unplayed_candidates.append(os.path.join(path, f))
+            final_candidates = unplayed_candidates
+
+        if not final_candidates:
             return []
         
         sample_paths = random.sample(final_candidates, min(amount, len(final_candidates)))

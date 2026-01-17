@@ -577,9 +577,10 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     raise common.RMCError("DataStore::InvalidArgument")
 
                 return self.data_provider.get_random_courses_by_difficulty(difficulty, 50)
+            
             elif unknown2[3] == "0":
-                logger.info("detected course browser (highlights, normal)")
-                return self.data_provider.get_random_courses_by_difficulty(1, 10)
+                logger.info("detected course browser (highlights)")
+                return self.data_provider.get_random_courses_mixed(10)
         else:
             logger.info("recommended_course_search_object with unexpected unknown2 parameter")
             raise common.RMCError("DataStore::InvalidArgument")

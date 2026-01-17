@@ -42,6 +42,9 @@ BASE_SMMDB_DIR = os.path.join(CURRENT_DIR, 'www', 'smmdb')
 BASE_CW_DIR = os.path.join(CURRENT_DIR, 'www', 'courseworld')
 LISTS_DIR = os.path.join(CURRENT_DIR, 'www', 'lists') 
 TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
+SYSTEM_ID = 10000000200
+BOOTSTRAP_LIMIT = 20
+MAINTENANCE_LIMIT = 40
 
 """
 typedef unsigned char uint8;
@@ -228,15 +231,29 @@ def create_dirs():
     mkdir(LISTS_DIR)
 
 def get_next_index():
-    max_index = 9999999999
+    max_index = 0
+    # Scan for the highest existing index
     for base in [BASE_SMMDB_DIR, BASE_CW_DIR]:
         if not os.path.exists(base): continue
         for root, _, files in os.walk(base):
             for file in files:
                 if file.endswith('-00001'):
-                    try: max_index = max(max_index, int(os.path.basename(file).split('-')[0]))
+                    try: 
+                        idx = int(os.path.basename(file).split('-')[0])
+                        # Ignore the system ID when calculating max index
+                        if idx == SYSTEM_ID:
+                            continue
+                        max_index = max(max_index, idx)
                     except: continue
-    return max_index + 1
+    
+    # Calculate next index
+    next_idx = max_index + 1
+    
+    # If the natural next index happens to be the reserved system ID, skip it
+    if next_idx == SYSTEM_ID:
+        next_idx += 1
+        
+    return next_idx
 
 class CacheManager:
     def __init__(self, progress_queue=None, log_queue=None):
@@ -256,7 +273,7 @@ class CacheManager:
         """Dedicated log function for status updates to bypass generic prefixing"""
         print(f"[CacheStatus] {message}", flush=True)
 
-    def get_random_count(self, difficulty):
+    def get_random_count(self, difficulty=None):
         source = get_settings()
         
         exclude_ids = set()
@@ -270,18 +287,23 @@ class CacheManager:
                     except: pass
 
         target_dir = BASE_CW_DIR if source == 'CourseWorld' else BASE_SMMDB_DIR
-        count = 0
-        path = os.path.join(target_dir, str(difficulty.value))
         
-        if os.path.exists(path):
-            for f in os.listdir(path):
-                if f.endswith('-00001') and not os.path.exists(os.path.join(path, f + '.played')):
-                    try:
-                        idx_str = f.split('-')[0]
-                        idx = int(idx_str)
-                        if idx not in exclude_ids:
-                            count += 1
-                    except: pass
+        # If difficulty is provided, check only that folder.
+        # If None, check all folders.
+        diffs_to_check = [difficulty.value] if difficulty else [0, 1, 2, 3]
+        
+        count = 0
+        for d in diffs_to_check:
+            path = os.path.join(target_dir, str(d))
+            if os.path.exists(path):
+                for f in os.listdir(path):
+                    if f.endswith('-00001') and not os.path.exists(os.path.join(path, f + '.played')):
+                        try:
+                            idx_str = f.split('-')[0]
+                            idx = int(idx_str)
+                            if idx not in exclude_ids:
+                                count += 1
+                        except: pass
         return count
 
     def get_list_count(self, list_name):
@@ -301,26 +323,112 @@ class CacheManager:
             count = self.get_random_count(Difficulty.Normal)
             self.log_status(f"Status: {count} unplayed courses available.")
         else:
-            rnd = self.get_random_count(Difficulty.Normal)
+            # Check all difficulties separately
+            e = self.get_random_count(Difficulty.Easy)
+            n = self.get_random_count(Difficulty.Normal)
+            ex = self.get_random_count(Difficulty.Expert)
+            sx = self.get_random_count(Difficulty.SuperExpert)
+            
             upl = self.get_list_count("new_arrivals.json")
             sta = self.get_list_count("star_ranking.json")
-            self.log_status(f"Status: Random={rnd}, Uploaded={upl}, Stars={sta} unplayed courses available.")
+            
+            self.log_status(f"Status: [E:{e} N:{n} X:{ex} S:{sx}], Uploaded={upl}, Stars={sta}")
 
     def are_pools_ready(self):
         if self.current_source_type == 'CourseWorld':
-            return self.get_random_count(Difficulty.Normal) >= 20
+            return self.get_random_count(Difficulty.Normal) >= BOOTSTRAP_LIMIT
         else:
-            rnd = self.get_random_count(Difficulty.Normal) >= 20
-            upl = self.get_list_count("new_arrivals.json") >= 20
-            sta = self.get_list_count("star_ranking.json") >= 20
-            return rnd and upl and sta
+            # Check if EACH difficulty has enough courses for bootstrap
+            e = self.get_random_count(Difficulty.Easy) >= BOOTSTRAP_LIMIT
+            n = self.get_random_count(Difficulty.Normal) >= BOOTSTRAP_LIMIT
+            ex = self.get_random_count(Difficulty.Expert) >= BOOTSTRAP_LIMIT
+            sx = self.get_random_count(Difficulty.SuperExpert) >= BOOTSTRAP_LIMIT
+            
+            upl = self.get_list_count("new_arrivals.json") >= BOOTSTRAP_LIMIT
+            sta = self.get_list_count("star_ranking.json") >= BOOTSTRAP_LIMIT
+            
+            return e and n and ex and sx and upl and sta
+
+    def ensure_system_courses(self):
+        system_id = SYSTEM_ID
+        
+        while True:
+            missing = False
+            for i in range(4):
+                path_req = os.path.join(BASE_SMMDB_DIR, str(i), f"{system_id}-0000{i}")
+                if not os.path.exists(path_req):
+                    missing = True
+                    break
+            
+            if not missing:
+                return
+
+            template_binary = None
+            template_json = None
+            found_local = False
+
+            for diff in range(4):
+                search_path = os.path.join(BASE_SMMDB_DIR, str(diff))
+                if os.path.exists(search_path):
+                    for f in os.listdir(search_path):
+                        if f.endswith('-00001') and not f.startswith(str(system_id)):
+                            full_path = os.path.join(search_path, f)
+                            json_path = full_path + '.json'
+                            if os.path.exists(json_path):
+                                try:
+                                    with open(full_path, 'rb') as bf: template_binary = bf.read()
+                                    with open(json_path, 'r') as jf: template_json = json.load(jf)
+                                    found_local = True
+                                    break
+                                except Exception as e:
+                                    pass 
+                    if found_local: break
+
+            if found_local and template_binary and template_json:
+                try:
+                    template_json['id'] = str(system_id)
+
+                    for diff in range(4):
+                        folder = os.path.join(BASE_SMMDB_DIR, str(diff))
+                        mkdir(folder)
+                        
+                        fname_req = f"{system_id}-0000{diff}"
+                        fpath_req = os.path.join(folder, fname_req)
+                        
+                        fname_std = f"{system_id}-00001"
+                        fpath_std = os.path.join(folder, fname_std)
+                        
+                        if not os.path.exists(fpath_req):
+                            with open(fpath_req + '.json', 'w') as f: json.dump(template_json, f)
+                            with open(fpath_req, 'wb') as f: 
+                                f.write(template_binary)
+                                f.flush()
+                                os.fsync(f.fileno())
+                        
+                        if diff != 1 and not os.path.exists(fpath_std):
+                            with open(fpath_std + '.json', 'w') as f: json.dump(template_json, f)
+                            with open(fpath_std, 'wb') as f: 
+                                f.write(template_binary)
+                                f.flush()
+                                os.fsync(f.fileno())
+                    
+                    return
+
+                except Exception as e:
+                    pass
+            else:
+                time.sleep(5)
+
 
     def worker_loop(self):
         self.current_source_type = get_settings()
         self.log(f"Active source: {self.current_source_type}")
 
         if is_online():
-            # Only run bootstrap if data is missing
+            # Start the system check thread.
+            Thread(target=self.ensure_system_courses, daemon=True).start()
+
+            # Bootstrapping logic (20 per category)
             if not self.are_pools_ready():
                 self.is_bootstrapping = True
                 
@@ -329,11 +437,15 @@ class CacheManager:
                     self.progress_queue.put(("BOOT_START", None))
                     
                 if self.current_source_type == 'CourseWorld':
-                     self.ensure_pool("CourseWorld General", "random", 20) 
+                     self.ensure_pool("CourseWorld", "random", BOOTSTRAP_LIMIT) 
                 else:
-                     self.ensure_pool("Random", "random", 20)
-                     self.ensure_pool("New Arrivals", "uploaded", 20)
-                     self.ensure_pool("Star Ranking", "stars", 20)
+                     # Bootstrap each difficulty + lists separately
+                     self.ensure_pool("Easy", "random", BOOTSTRAP_LIMIT, difficulty=Difficulty.Easy)
+                     self.ensure_pool("Normal", "random", BOOTSTRAP_LIMIT, difficulty=Difficulty.Normal)
+                     self.ensure_pool("Expert", "random", BOOTSTRAP_LIMIT, difficulty=Difficulty.Expert)
+                     self.ensure_pool("Super Expert", "random", BOOTSTRAP_LIMIT, difficulty=Difficulty.SuperExpert)
+                     self.ensure_pool("New Arrivals", "uploaded", BOOTSTRAP_LIMIT)
+                     self.ensure_pool("Star Ranking", "stars", BOOTSTRAP_LIMIT)
                 
                 self.is_bootstrapping = False
             
@@ -362,9 +474,13 @@ class CacheManager:
                     if self.current_source_type == 'CourseWorld':
                          self.maintain_pool_logic("CourseWorld", "random", 80)
                     else:
-                         self.maintain_pool_logic("Random", "random", 80)
-                         self.maintain_pool_logic("New Arrivals", "uploaded", 40)
-                         self.maintain_pool_logic("Star Ranking", "stars", 40)
+                         # Maintenance
+                         self.maintain_pool_logic("Easy", "random", MAINTENANCE_LIMIT, difficulty=Difficulty.Easy)
+                         self.maintain_pool_logic("Normal", "random", MAINTENANCE_LIMIT, difficulty=Difficulty.Normal)
+                         self.maintain_pool_logic("Expert", "random", MAINTENANCE_LIMIT, difficulty=Difficulty.Expert)
+                         self.maintain_pool_logic("Super Expert", "random", MAINTENANCE_LIMIT, difficulty=Difficulty.SuperExpert)
+                         self.maintain_pool_logic("New Arrivals", "uploaded", MAINTENANCE_LIMIT)
+                         self.maintain_pool_logic("Star Ranking", "stars", MAINTENANCE_LIMIT)
 
                 else:
                     self.log("Offline. Sleeping...")
@@ -374,32 +490,31 @@ class CacheManager:
 
             time.sleep(60)
 
-    def ensure_pool(self, name, order_mode, target):
+    def ensure_pool(self, name, order_mode, target, difficulty=None):
         count = 0
         if order_mode == "random":
-            count = self.get_random_count(Difficulty.Normal)
+             count = self.get_random_count(difficulty)
         else:
             filename = "new_arrivals.json" if order_mode == "uploaded" else "star_ranking.json"
             count = self.get_list_count(filename)
         
         if count < target:
-            if self.fetch_new_page(order=order_mode):
+            if self.fetch_new_page(order=order_mode, difficulty=difficulty):
                 self.process_batch(target - count, f"Bootstrapping {name} cache")
 
-    def maintain_pool_logic(self, name, order_mode, target):
+    def maintain_pool_logic(self, name, order_mode, target, difficulty=None):
         count = 0
-        filename = None
         if order_mode == "random":
-            count = self.get_random_count(Difficulty.Normal)
+             count = self.get_random_count(difficulty)
         else:
             filename = "new_arrivals.json" if order_mode == "uploaded" else "star_ranking.json"
             count = self.get_list_count(filename)
 
         if count < target:
-            if self.fetch_new_page(order=order_mode):
+            if self.fetch_new_page(order=order_mode, difficulty=difficulty):
                 self.process_batch(target - count, f"{name}")
 
-    def fetch_new_page(self, order="random"):
+    def fetch_new_page(self, order="random", difficulty=None):
         current_source = self.current_source_type
         self.fetched_ids_in_batch = []
         self.current_order_mode = order
@@ -423,7 +538,9 @@ class CacheManager:
                 elif order == "stars":
                     params['order'] = "stars"
                 elif order == "random":
-                    params['random'] = 1
+                    if difficulty is not None:
+                        params['difficultyfrom'] = difficulty.value
+                        params['difficultyto'] = difficulty.value
 
                 temp_headers = self.session.headers.copy()
                 temp_headers.pop('User-Agent', None)
@@ -454,6 +571,8 @@ class CacheManager:
                 if self.progress_queue and self.is_bootstrapping:
                      self.progress_queue.put(("PROGRESS", (p_type, fetched, count)))
         
+        # Even if we sort by difficulty into folders, we still add "uploaded" and "stars" to the lists
+        # so they appear in the browser mixed.
         if self.current_source_type == 'SMMDB' and self.current_order_mode in ["uploaded", "stars"]:
             self.update_list_file(self.current_order_mode)
 
@@ -488,14 +607,43 @@ class CacheManager:
         except Exception as e:
             self.log(f"Failed to save list {filename}: {e}")
 
+    def get_smmdb_difficulty_id(self, diff_val):
+        if diff_val is None: return 1 # Default Normal
+
+        # Handle integers directly (API might return 0, 1, 2, 3)
+        if isinstance(diff_val, int):
+            if 0 <= diff_val <= 3:
+                return diff_val
+            return 1
+
+        # Handle strings
+        d = str(diff_val).lower().strip()
+        if d == 'easy' or d == '0': return 0
+        if d == 'normal' or d == '1': return 1
+        if d == 'expert' or d == '2': return 2
+        if d == 'superexpert' or d == 'super expert' or d == '3': return 3
+        return 1
+
     def download_and_process(self, course):
         if 'id' not in course: return None
 
         course_id = course['id']
         index = get_next_index()
         dest_folder = BASE_CW_DIR if self.current_source_type == 'CourseWorld' else BASE_SMMDB_DIR
-        basedir = os.path.join(dest_folder, str(Difficulty.Normal.value))
+        
+        # DETERMINE FOLDER BASED ON DIFFICULTY
+        diff_id = 1 # Default Normal
+        if self.current_source_type == 'SMMDB':
+            # SMMDB API returns difficulty string OR int
+            diff_id = self.get_smmdb_difficulty_id(course.get('difficulty', 'normal'))
+        else:
+            diff_id = 1
+
+        basedir = os.path.join(dest_folder, str(diff_id))
         mkdir(basedir)
+
+        # Precompute the formatted full ID for logging and saving
+        full_id_str = f'{index:011d}-00001'
 
         try:
             if self.current_source_type == 'CourseWorld':
@@ -528,14 +676,14 @@ class CacheManager:
                         if not ash0_decompress(part): raise ValueError("Corrupt")
                 except: return None
 
-                basename = os.path.join(basedir, f'{index:011d}-00001')
+                basename = os.path.join(basedir, full_id_str)
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
                 with open(basename, 'wb') as f: 
                     f.write(data)
                     f.flush()
                     os.fsync(f.fileno())
 
-                self.log(f"SAVED: {index}")
+                self.log(f"SAVED: {full_id_str}")
                 return index
 
             else:
@@ -550,14 +698,14 @@ class CacheManager:
                     c4 = ash_compress_python(zf.read('course000/thumbnail1.tnl'))
                 meta = MetaBinary(course['courseTheme'], c1, c2, c3, c4)
                 course['meta_binary_b64'] = base64.b64encode(meta.to_bytes()).decode('ascii')
-                basename = os.path.join(basedir, f'{index:011d}-00001')
+                basename = os.path.join(basedir, full_id_str)
                 with open(basename + '.json', 'w') as f: json.dump(course, f)
                 with open(basename, 'wb') as f: 
                     f.write(c1 + c2 + c3 + c4)
                     f.flush()
                     os.fsync(f.fileno())
 
-                self.log(f"SAVED: {index}")
+                self.log(f"SAVED: {full_id_str}")
                 return index
         except Exception as e:
             self.log(f"Failed {course_id}: {e}")
