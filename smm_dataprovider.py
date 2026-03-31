@@ -27,9 +27,11 @@ try:
         hmac._patched_by_smm = True
 except Exception: pass
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def read_file(file):
     try:
-        with open(file, "rb") as f: return f.read()
+        with open(os.path.join(CURRENT_DIR, file), "rb") as f: return f.read()
     except FileNotFoundError:
         return b""
 
@@ -70,8 +72,8 @@ class SmmDataProvider:
         This prevents mixing SMMDB courses with CourseWorld courses.
         """
         config = configparser.ConfigParser()
-        # Navigate up to find settings.ini based on standard structure
-        ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
+        # Use SETTINGS_INI_PATH from smmdb to handle PyInstaller correctly
+        ini_path = smmdb.SETTINGS_INI_PATH
         
         source = 'SMMDB' # Default
         try:
