@@ -362,42 +362,44 @@ class SmmDataProvider:
         """
         diff_value = difficulty.value if hasattr(difficulty, 'value') else difficulty
         bases_to_check = self.get_active_source_dirs()
+        
         unplayed_candidates = []
+        played_candidates = []
         
         for base in bases_to_check:
             path = os.path.join(base, str(diff_value))
             if os.path.exists(path):
                 for f in os.listdir(path):
-                    course_path = os.path.join(path, f)
                     if f.endswith('-00001'):
                         try:
                             cid = int(f.split('-')[0])
                             if cid == 10000000200: continue
                             
+                            course_path = os.path.join(path, f)
                             if not os.path.exists(course_path + '.played'):
                                 unplayed_candidates.append(course_path)
+                            else:
+                                played_candidates.append(course_path)
                         except: continue
 
-        final_candidates = unplayed_candidates
+        selection = []
+        if len(unplayed_candidates) >= amount:
+            selection = random.sample(unplayed_candidates, amount)
+        else:
+            selection = unplayed_candidates
+            remaining = amount - len(selection)
+            
+            if played_candidates:
+                fill_amount = min(remaining, len(played_candidates))
+                selection.extend(random.sample(played_candidates, fill_amount))
 
-        if not final_candidates:
-            # Fallback to replaying played courses if run out
-            for base in bases_to_check:
-                path = os.path.join(base, str(diff_value))
-                if os.path.exists(path):
-                    for f in os.listdir(path):
-                         if f.endswith('-00001'):
-                            cid = int(f.split('-')[0])
-                            if cid == 10000000200: continue
-                            unplayed_candidates.append(os.path.join(path, f))
-            final_candidates = unplayed_candidates
-
-        if not final_candidates:
+        if not selection:
             return []
+            
+        random.shuffle(selection)
         
-        sample_paths = random.sample(final_candidates, min(amount, len(final_candidates)))
         result = []
-        for path in sample_paths:
+        for path in selection:
             try:
                 cid = int(os.path.basename(path).split('-')[0])
                 data = self.get_course_data(cid)
