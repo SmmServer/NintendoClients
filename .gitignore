@@ -6,3 +6,4 @@
 /www/tmp/*
 /www/courseworld/*
 __pycache__/
+__init__.py

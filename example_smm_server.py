@@ -20,11 +20,7 @@ import sys
 import configparser
 
 
-# https://stackoverflow.com/a/44175370/1806760
-logging.basicConfig(
-    format="[%(asctime)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S")
+# Logging is now handled by the main app
 logger = logging.getLogger(__name__)
 
 def get_bind_ip():
@@ -33,6 +29,8 @@ def get_bind_ip():
     return '127.0.5.1'
 
 BIND_IP = get_bind_ip()
+stop_event = collections.namedtuple("StopEvent", "is_set")(lambda: False) # Placeholder
+running_server = None
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -69,7 +67,11 @@ SECURE_SERVER = "Quazal Rendez-Vous"
 
 def get_course_source():
     config = configparser.ConfigParser()
-    ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
+    storage_dir = os.getenv("SMM_STORAGE_DIR")
+    if storage_dir:
+        ini_path = os.path.join(storage_dir, "Configs", "settings.ini")
+    else:
+        ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
     try:
         config.read(ini_path)
         return config.get('General', 'CourseSource', fallback='SMMDB')
@@ -753,6 +755,56 @@ class BinaryMessage(UserMessage):
 
 common.DataHolder.register(common.Data, "BinaryMessage")
 
+
+def start_server(host=BIND_IP, stop_evt=None):
+    global running_server
+    settings = backend.Settings("default.cfg")
+    settings.set("nex.access_key", SMM.ACCESS_KEY)
+    settings.set("nex.version", SMM.NEX_VERSION)
+    settings.set("prudp.ping_timeout", 10.0)
+
+    secure_server_port = 59921
+    server_key = derive_key(settings, get_user_by_name(SECURE_SERVER))
+    secure_server = service.RMCServer(settings)
+    secure_server.register_protocol(SecureConnectionServer())
+    secure_server.register_protocol(DataStoreSmmServer(settings))
+    secure_server.register_protocol(MessageDeliveryServer(settings))
+    secure_server.start(host, secure_server_port, key=server_key)
+    logger.info("smm secure server {}:{}".format(host, secure_server_port))
+
+    auth_server_port = 59900
+    auth_server = service.RMCServer(settings)
+    auth_server.register_protocol(AuthenticationServer(settings, host, secure_server_port))
+    auth_server.start(host, auth_server_port)
+    logger.info("smm auth server {}:{}".format(host, auth_server_port))
+
+    running_server = (secure_server, auth_server)
+
+    logger.info("Press Ctrl+C to exit...")
+    try:
+        while stop_evt is None or not stop_evt.is_set():
+            time.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        stop_rmc_server(secure_server)
+        stop_rmc_server(auth_server)
+
+def stop_rmc_server(s):
+    from nintendo.common import scheduler
+    # RMCServer doesn't have stop(), we must close its underlying socket and remove from scheduler
+    for evt in scheduler.events[:]:
+        if hasattr(evt, 'socket') and evt.socket == s.server.server.socket:
+            scheduler.remove(evt)
+    try: s.server.server.socket.close()
+    except: pass
+
+def stop_server():
+    global running_server
+    if running_server:
+        for s in running_server:
+            stop_rmc_server(s)
+        running_server = None
 
 def main():
     parser = argparse.ArgumentParser()

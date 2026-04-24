@@ -11,11 +11,7 @@ import configparser
 import os
 import sys
 
-# https://stackoverflow.com/a/44175370/1806760
-logging.basicConfig(
-    format="[%(asctime)s] %(levelname)s: %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S")
+# Logging is now handled by the main app
 logger = logging.getLogger(__name__)
 
 # Config setup to match SMM server logic
@@ -40,6 +36,7 @@ def get_bind_ip():
     return '127.0.5.1'
 
 BIND_IP = get_bind_ip()
+running_server = None
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -188,6 +185,53 @@ class FriendsServer(friends.FriendsServer):
     def update_presence(self, context, presence):
         logger.info("FriendsServer.update_presence not implemented")
         raise common.RMCError("Core::NotImplemented")
+
+
+def start_server(host=BIND_IP, stop_evt=None):
+    global running_server
+    settings = backend.Settings("friends.cfg")
+    settings.set("nex.access_key", Friends.ACCESS_KEY)
+    settings.set("prudp.ping_timeout", 30.0)
+
+    server_key = derive_key(get_user_by_name(SECURE_SERVER))
+    secure_server = service.RMCServer(settings)
+    secure_server.register_protocol(SecureConnectionServer())
+    secure_server.register_protocol(FriendsServer())
+    secure_server.start(host, 60021, key=server_key)
+    logger.info("friends secure server {}:60021".format(host))
+
+    auth_server = service.RMCServer(settings)
+    auth_server.register_protocol(AuthenticationServer(settings, host, 60021))
+    auth_server.start(host, 60000)
+    logger.info("friends auth server {}:60000".format(host))
+
+    running_server = (secure_server, auth_server)
+
+    logger.info("Press Ctrl+C to exit...")
+    try:
+        while stop_evt is None or not stop_evt.is_set():
+            time.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        stop_rmc_server(secure_server)
+        stop_rmc_server(auth_server)
+
+def stop_rmc_server(s):
+    from nintendo.common import scheduler
+    # RMCServer doesn't have stop(), we must close its underlying socket and remove from scheduler
+    for evt in scheduler.events[:]:
+        if hasattr(evt, 'socket') and evt.socket == s.server.server.socket:
+            scheduler.remove(evt)
+    try: s.server.server.socket.close()
+    except: pass
+
+def stop_server():
+    global running_server
+    if running_server:
+        for s in running_server:
+            stop_rmc_server(s)
+        running_server = None
 
 
 def main():

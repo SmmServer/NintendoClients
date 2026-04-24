@@ -31,17 +31,23 @@ sys.stderr = sys.stdout
 logger = logging.getLogger(__name__)
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+STORAGE_DIR = os.getenv("SMM_STORAGE_DIR")
 
-if getattr(sys, 'frozen', False):
-    ROOT_DIR = os.path.dirname(sys.executable)
+if STORAGE_DIR:
+    ROOT_DIR = STORAGE_DIR
+    WWW_ROOT = os.path.join(STORAGE_DIR, 'NintendoClients', 'www')
 else:
-    ROOT_DIR = os.path.dirname(CURRENT_DIR)
+    if getattr(sys, 'frozen', False):
+        ROOT_DIR = os.path.dirname(sys.executable)
+    else:
+        ROOT_DIR = os.path.dirname(CURRENT_DIR)
+    WWW_ROOT = os.path.join(CURRENT_DIR, 'www')
 
 SETTINGS_INI_PATH = os.path.join(ROOT_DIR, 'Configs', 'settings.ini')
-BASE_SMMDB_DIR = os.path.join(CURRENT_DIR, 'www', 'smmdb')
-BASE_CW_DIR = os.path.join(CURRENT_DIR, 'www', 'courseworld')
-LISTS_DIR = os.path.join(CURRENT_DIR, 'www', 'lists') 
-TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
+BASE_SMMDB_DIR = os.path.join(WWW_ROOT, 'smmdb')
+BASE_CW_DIR = os.path.join(WWW_ROOT, 'courseworld')
+LISTS_DIR = os.path.join(WWW_ROOT, 'lists') 
+TMP_DIR = os.path.join(WWW_ROOT, 'tmp')
 SYSTEM_ID = 10000000200
 BOOTSTRAP_LIMIT = 20
 MAINTENANCE_LIMIT = 40
@@ -267,11 +273,18 @@ class CacheManager:
 
     def log(self, message):
         msg_str = f"[CacheManager] {message}"
-        print(msg_str, flush=True)
+        if self.log_queue:
+            self.log_queue.put(("Debug", msg_str))
+        else:
+            print(msg_str, flush=True)
 
     def log_status(self, message):
         """Dedicated log function for status updates to bypass generic prefixing"""
-        print(f"[CacheStatus] {message}", flush=True)
+        msg_str = f"Status: {message}"
+        if self.log_queue:
+            self.log_queue.put(("CacheStatus", msg_str))
+        else:
+            print(f"[CacheStatus] {msg_str}", flush=True)
 
     def get_random_count(self, difficulty=None):
         source = get_settings()
