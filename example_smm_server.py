@@ -18,7 +18,7 @@ import requests
 import os
 import sys
 import configparser
-
+import smmdb
 
 # https://stackoverflow.com/a/44175370/1806760
 logging.basicConfig(
@@ -69,7 +69,8 @@ SECURE_SERVER = "Quazal Rendez-Vous"
 
 def get_course_source():
     config = configparser.ConfigParser()
-    ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
+    # Use SETTINGS_INI_PATH from smmdb to handle PyInstaller correctly
+    ini_path = smmdb.SETTINGS_INI_PATH
     try:
         config.read(ini_path)
         return config.get('General', 'CourseSource', fallback='SMMDB')

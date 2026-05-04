@@ -14,8 +14,11 @@ import zlib
 import logging
 import sys
 import configparser
+import sqlite3
 
 logger = logging.getLogger(__name__)
+
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www", "courseworld", "courseworld.db")
 
 try:
     if not hasattr(hmac, '_patched_by_smm'):
@@ -86,6 +89,16 @@ class SmmDataProvider:
             return [smmdb.BASE_CW_DIR]
         else:
             return [smmdb.BASE_SMMDB_DIR]
+
+    def _get_course_source(self):
+        config = configparser.ConfigParser()
+        ini_path = smmdb.SETTINGS_INI_PATH
+        try:
+            if os.path.exists(ini_path):
+                config.read(ini_path)
+                return config.get('General', 'CourseSource', fallback='SMMDB')
+        except: pass
+        return 'SMMDB'
 
     def init_mario100_data(self):
         if not smm_mario100: return []
@@ -232,15 +245,79 @@ class SmmDataProvider:
             logger.error(f"Error constructing course {course_id}: {e}")
             return None
 
+    def construct_coursedata_from_db(self, row):
+        data_id, difficulty, maker, title, stars, binary_data, played = row
+        
+        try:
+            info = datastoresmm.DataStoreInfoStuff()
+            info.stars_received = stars
+            
+            meta = datastoresmm.DataStoreMetaInfo()
+            meta.data_id = data_id
+            meta.owner_id = self.construct_fake_miidata(maker)
+            meta.name = title
+            meta.data_type = 6
+            meta.size = len(binary_data)
+            
+            starts =[m.start() for m in re.finditer(b'ASH0', binary_data)]
+            if len(starts) == 4:
+                chunks = [binary_data[starts[i]:starts[i+1]] for i in range(3)] + [binary_data[starts[3]:]]
+                style = 1 # 0:SMB1  1:SMB3  2:SMW  3:NSMBU
+                theme = 0
+                crcs =[zlib.crc32(c) for c in chunks]
+                meta.meta_binary = struct.pack(">IIIIIIIIIII", style, theme, len(chunks[1]), len(chunks[2]), len(chunks[0]), len(chunks[3]), 1, crcs[1], crcs[2], crcs[0], crcs[3])
+            else:
+                meta.meta_binary = b""
+            
+            perm = datastoresmm.DataStorePermission()
+            perm.permission = 0
+            perm.recipients =[]
+            meta.permission = perm
+            
+            del_perm = datastoresmm.DataStorePermission()
+            del_perm.permission = 3
+            del_perm.recipients =[]
+            meta.delete_permission = del_perm
+            
+            meta.create_time = common.DateTime(0)
+            meta.update_time = common.DateTime(0)
+            meta.referred_time = common.DateTime(0)
+            meta.expire_time = common.DateTime(0)
+            meta.tags = [""]
+            meta.ratings =[]
+            
+            info.info = meta
+            return info
+        except Exception as e:
+            logger.error(f"Error constructing DB course {data_id}: {e}")
+            return None
+
     def get_course_data(self, data_id):
         if data_id in self.course_data: return self.course_data[data_id]
-        filename = self.get_course_filename(data_id)
-        if filename:
-            data = self.construct_fake_coursedata(data_id, filename)
-            if data:
-                self.course_data[data_id] = data
-                return data
-        return None
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT data_id, difficulty, maker, title, stars, binary_data, played FROM cw_courses WHERE data_id = ?", (data_id,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    data = self.construct_coursedata_from_db(row)
+                    if data:
+                        self.course_data[data_id] = data
+                        return data
+            except Exception as e:
+                logger.error(f"DB Error getting course {data_id}: {e}")
+            return None
+        else:
+            filename = self.get_course_filename(data_id)
+            if filename:
+                data = self.construct_fake_coursedata(data_id, filename)
+                if data:
+                    self.course_data[data_id] = data
+                    return data
+            return None
 
     def get_course_filename(self, data_id):
         expected = "{:011d}-00001".format(data_id)
@@ -262,10 +339,21 @@ class SmmDataProvider:
         return f"http://{ip}:8383/smm/course/{data_id}"
 
     def mark_course_played(self, data_id):
-        filename = self.get_course_filename(data_id)
-        if filename and not os.path.exists(filename + ".played"):
-            try: open(filename + ".played", 'a').close()
-            except: pass
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("UPDATE cw_courses SET played = 1 WHERE data_id = ?", (data_id,))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"DB Error marking course played: {e}")
+        else:
+            filename = self.get_course_filename(data_id)
+            if filename and not os.path.exists(filename + ".played"):
+                try: open(filename + ".played", 'a').close()
+                except: pass
 
     def get_courses_from_list(self, list_name, limit=10):
         try:
@@ -318,42 +406,59 @@ class SmmDataProvider:
         Mixes courses from ALL difficulties for Highlights, excluding those already in lists.
         Only scans the active source type.
         """
-        bases_to_check = self.get_active_source_dirs()
-        candidates = []
-        
-        excluded_ids = set()
-        for list_name in ["new_arrivals.json", "star_ranking.json"]:
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            result =[]
             try:
-                path = os.path.join(smmdb.LISTS_DIR, list_name)
-                if os.path.exists(path):
-                    with open(path, 'r') as f:
-                        ids = json.load(f)
-                        excluded_ids.update(ids)
-            except: pass
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT data_id FROM cw_courses ORDER BY RANDOM() LIMIT ?", (amount,))
+                rows = cursor.fetchall()
+                conn.close()
+                
+                for (cid,) in rows:
+                    data = self.get_course_data(cid)
+                    if data: result.append(data)
+            except Exception as e:
+                logger.error(f"DB Error mixed courses: {e}")
+            return result
+        else:
+            bases_to_check = self.get_active_source_dirs()
+            candidates = []
+            
+            excluded_ids = set()
+            for list_name in ["new_arrivals.json", "star_ranking.json"]:
+                try:
+                    path = os.path.join(smmdb.LISTS_DIR, list_name)
+                    if os.path.exists(path):
+                        with open(path, 'r') as f:
+                            ids = json.load(f)
+                            excluded_ids.update(ids)
+                except: pass
 
-        for base in bases_to_check:
-            for diff in range(4):
-                path = os.path.join(base, str(diff))
-                if os.path.exists(path):
-                    for f in os.listdir(path):
-                        if f.endswith('-00001'):
-                            try:
-                                cid = int(f.split('-')[0])
-                                if cid == 10000000200 or cid in excluded_ids:
-                                    continue
-                                candidates.append(cid)
-                            except: continue
+            for base in bases_to_check:
+                for diff in range(4):
+                    path = os.path.join(base, str(diff))
+                    if os.path.exists(path):
+                        for f in os.listdir(path):
+                            if f.endswith('-00001'):
+                                try:
+                                    cid = int(f.split('-')[0])
+                                    if cid == 10000000200 or cid in excluded_ids:
+                                        continue
+                                    candidates.append(cid)
+                                except: continue
 
-        if not candidates:
-            return []
-        
-        sample_ids = random.sample(candidates, min(amount, len(candidates)))
-        result = []
-        for cid in sample_ids:
-            data = self.get_course_data(cid)
-            if data:
-                result.append(data)
-        return result
+            if not candidates:
+                return []
+            
+            sample_ids = random.sample(candidates, min(amount, len(candidates)))
+            result = []
+            for cid in sample_ids:
+                data = self.get_course_data(cid)
+                if data:
+                    result.append(data)
+            return result
 
     def get_random_courses_by_difficulty(self, difficulty, amount):
         """
@@ -361,54 +466,77 @@ class SmmDataProvider:
         Only scans the active source type.
         """
         diff_value = difficulty.value if hasattr(difficulty, 'value') else difficulty
-        bases_to_check = self.get_active_source_dirs()
+        source = self._get_course_source()
         
-        unplayed_candidates = []
-        played_candidates = []
-        
-        for base in bases_to_check:
-            path = os.path.join(base, str(diff_value))
-            if os.path.exists(path):
-                for f in os.listdir(path):
-                    if f.endswith('-00001'):
-                        try:
-                            cid = int(f.split('-')[0])
-                            if cid == 10000000200: continue
-                            
-                            course_path = os.path.join(path, f)
-                            if not os.path.exists(course_path + '.played'):
-                                unplayed_candidates.append(course_path)
-                            else:
-                                played_candidates.append(course_path)
-                        except: continue
-
-        selection = []
-        if len(unplayed_candidates) >= amount:
-            selection = random.sample(unplayed_candidates, amount)
-        else:
-            selection = unplayed_candidates
-            remaining = amount - len(selection)
-            
-            if played_candidates:
-                fill_amount = min(remaining, len(played_candidates))
-                selection.extend(random.sample(played_candidates, fill_amount))
-
-        if not selection:
-            return []
-            
-        random.shuffle(selection)
-        
-        result = []
-        for path in selection:
+        if source == 'CourseWorld':
+            result =[]
             try:
-                cid = int(os.path.basename(path).split('-')[0])
-                data = self.get_course_data(cid)
-                if data:
-                    result.append(data)
-            except Exception:
-                continue
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT data_id FROM cw_courses WHERE difficulty = ? AND played = 0 ORDER BY RANDOM() LIMIT ?", (diff_value, amount))
+                rows = cursor.fetchall()
+                
+                if len(rows) < amount:
+                    cursor.execute("SELECT data_id FROM cw_courses WHERE difficulty = ? ORDER BY RANDOM() LIMIT ?", (diff_value, amount))
+                    rows = cursor.fetchall()
+                    
+                conn.close()
+                
+                for (cid,) in rows:
+                    data = self.get_course_data(cid)
+                    if data: result.append(data)
+            except Exception as e:
+                logger.error(f"DB Error difficulty courses: {e}")
+            return result
+        else:
+            bases_to_check = self.get_active_source_dirs()
             
-        return result
+            unplayed_candidates = []
+            played_candidates = []
+            
+            for base in bases_to_check:
+                path = os.path.join(base, str(diff_value))
+                if os.path.exists(path):
+                    for f in os.listdir(path):
+                        if f.endswith('-00001'):
+                            try:
+                                cid = int(f.split('-')[0])
+                                if cid == 10000000200: continue
+                                
+                                course_path = os.path.join(path, f)
+                                if not os.path.exists(course_path + '.played'):
+                                    unplayed_candidates.append(course_path)
+                                else:
+                                    played_candidates.append(course_path)
+                            except: continue
+
+            selection = []
+            if len(unplayed_candidates) >= amount:
+                selection = random.sample(unplayed_candidates, amount)
+            else:
+                selection = unplayed_candidates
+                remaining = amount - len(selection)
+                
+                if played_candidates:
+                    fill_amount = min(remaining, len(played_candidates))
+                    selection.extend(random.sample(played_candidates, fill_amount))
+
+            if not selection:
+                return []
+                
+            random.shuffle(selection)
+            
+            result = []
+            for path in selection:
+                try:
+                    cid = int(os.path.basename(path).split('-')[0])
+                    data = self.get_course_data(cid)
+                    if data:
+                        result.append(data)
+                except Exception:
+                    continue
+                
+            return result
 
     def get_unkdata(self, data_id): return self.unkdata.get(data_id)
     def get_ranking(self, data_id): return self.rankings.get(data_id)
