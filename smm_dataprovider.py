@@ -151,6 +151,36 @@ class SmmDataProvider:
 
     def get_mario100_data(self): return self.mario100
 
+    def _patch_mii_binary_name(self, meta_binary, name):
+        if not meta_binary or len(meta_binary) < 0x78:
+            return meta_binary
+        
+        mb = bytearray(meta_binary)
+        
+        name_bytes = name[:10].encode('utf-16le')
+        name_bytes = name_bytes.ljust(20, b'\x00')
+        
+        base_offset = 0x18
+        name_offset = base_offset + 0x1A
+        mb[name_offset : name_offset + 20] = name_bytes
+        
+        ffl_data_to_crc = mb[base_offset : base_offset + 94]
+        
+        crc = 0x0000
+        for byte in ffl_data_to_crc:
+            crc ^= (byte << 8)
+            for _ in range(8):
+                if crc & 0x8000:
+                    crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+                else:
+                    crc = (crc << 1) & 0xFFFF
+        
+        crc_offset = base_offset + 94
+        mb[crc_offset] = (crc >> 8) & 0xFF
+        mb[crc_offset + 1] = crc & 0xFF
+        
+        return bytes(mb)
+
     def _generate_dummy_mii(self, pid, name="Player"):
         if pid in self.mii_data_pid:
             return self.mii_data_id[self.mii_data_pid[pid]]
@@ -168,6 +198,7 @@ class SmmDataProvider:
         fake_mii.info.data_id = new_data_id
         fake_mii.info.owner_id = pid
         fake_mii.info.name = name
+        fake_mii.info.meta_binary = self._patch_mii_binary_name(fake_mii.info.meta_binary, name)
         
         self.mii_data_id[new_data_id] = fake_mii
         self.mii_data_pid[pid] = new_data_id
@@ -190,17 +221,27 @@ class SmmDataProvider:
     def get_mii_data_id(self, data_id): return self.mii_data_id.get(data_id)
 
     def construct_fake_miidata(self, name):
-        if name in self.fake_mii_name: return self.fake_mii_name[name]
-        data_id = self.fake_mii_data_id; self.fake_mii_data_id += 1
-        pid = self.fake_mii_pid; self.fake_mii_pid += 1
+        if name in self.fake_mii_name:
+            return self.fake_mii_name[name]
+            
+        data_id = self.fake_mii_data_id
+        self.fake_mii_data_id += 1
+        pid = self.fake_mii_pid
+        self.fake_mii_pid += 1
         
-        if not self.mii_data_id: return pid
+        if not self.mii_data_id:
+            return pid
         
         real_keys = list(self.mii_data_id.keys())
         base_key = real_keys[abs(hash(name)) % len(real_keys)]
         fake_mii = copy.deepcopy(self.mii_data_id[base_key])
-        fake_mii.info.data_id = data_id; fake_mii.info.owner_id = pid; fake_mii.info.name = name
-        self.mii_data_id[data_id] = fake_mii; self.mii_data_pid[pid] = data_id
+        fake_mii.info.data_id = data_id
+        fake_mii.info.owner_id = pid
+        fake_mii.info.name = name
+        fake_mii.info.meta_binary = self._patch_mii_binary_name(fake_mii.info.meta_binary, name)
+
+        self.mii_data_id[data_id] = fake_mii
+        self.mii_data_pid[pid] = data_id
         self.fake_mii_name[name] = pid
         return pid
 
