@@ -613,3 +613,29 @@ class SmmDataProvider:
 
     def get_unkdata(self, data_id): return self.unkdata.get(data_id)
     def get_ranking(self, data_id): return self.rankings.get(data_id)
+
+    def mark_course_starred(self, data_id):
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("UPDATE cw_courses SET starred = 1 WHERE data_id = ?", (data_id,))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"DB Error marking course starred: {e}")
+
+    def get_starred_courses_ids(self, limit=10):
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT data_id FROM cw_courses WHERE starred = 1 ORDER BY RANDOM() LIMIT ?", (limit,))
+                rows = cursor.fetchall()
+                conn.close()
+                return [r[0] for r in rows]
+            except Exception as e:
+                logger.error(f"DB Error getting starred courses: {e}")
+        return[]

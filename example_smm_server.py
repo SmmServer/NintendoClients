@@ -327,11 +327,24 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         return res
 
     def rate_custom_ranking(self, context, param):
+        """
+        Called after completing a level or awarding stars:
+        - Level completion: len(param) == 2
+        - Star awarding: len(param) == 12
+        """
         logger.info(f"Intercepted Star/Rating batch of {len(param)} items")
+
+        if len(param) != 12:
+            rmcResponse = common.RMCResponse()
+            rmcResponse.result = common.Result(0x10001)
+            return rmcResponse
+
         source = get_course_source()
 
         if source == 'CourseWorld':
-            logger.info("Course Source is CourseWorld. Voting disabled.")
+            logger.info("Course Source is CourseWorld. Saving star to DB...")
+            data_id = param[0].data_id
+            self.data_provider.mark_course_starred(data_id)
             rmcResponse = common.RMCResponse()
             rmcResponse.result = common.Result(0x10001)
             return rmcResponse
@@ -448,7 +461,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         elif param.magic == 0:  # Course metadata?
             if not param.data_ids:
                 # TODO: implement (bookmarks?)
-                param.data_ids = [10000000200]
+                starred_ids = self.data_provider.get_starred_courses_ids(10)
+                if starred_ids:
+                    param.data_ids = starred_ids
+                else:
+                    param.data_ids =[10000000200]
 
             for data_id in param.data_ids:
                 # definitely involve course metadata!
@@ -649,7 +666,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 best_time = self.data_provider.get_course_best_time(param.data_id)
                 if best_time is not None:
                     res.world_record = best_time
-                    
+
                 res.first_clear_date = common.DateTime(0x6A28CC7F)  # or null for uncleared date?
                 res.world_record_date = common.DateTime(0x6A28CC7F)
                 return res
