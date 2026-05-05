@@ -287,7 +287,7 @@ class SmmDataProvider:
             return None
 
     def construct_coursedata_from_db(self, row):
-        data_id, difficulty, maker, title, stars, binary_data, played = row
+        data_id, difficulty, maker, title, stars, upload_time, user_plays, clears, total_attempts, binary_data, played = row
         
         try:
             info = datastoresmm.DataStoreInfoStuff()
@@ -320,18 +320,50 @@ class SmmDataProvider:
             del_perm.recipients =[]
             meta.delete_permission = del_perm
             
-            meta.create_time = common.DateTime(0)
+            meta.create_time = common.DateTime(upload_time)
             meta.update_time = common.DateTime(0)
             meta.referred_time = common.DateTime(0)
             meta.expire_time = common.DateTime(0)
             meta.tags = [""]
-            meta.ratings =[]
+
+            ratings =[]
+            slot0 = datastoresmm.DataStoreRatingInfoWithSlot()
+            slot0.slot = 0
+            slot0.info.total_value = user_plays
+            
+            slot2 = datastoresmm.DataStoreRatingInfoWithSlot()
+            slot2.slot = 2
+            slot2.info.total_value = clears
+            
+            slot3 = datastoresmm.DataStoreRatingInfoWithSlot()
+            slot3.slot = 3
+            slot3.info.total_value = total_attempts
+            
+            ratings.append(slot0)
+            ratings.append(slot2)
+            ratings.append(slot3)
+            meta.ratings = ratings
             
             info.info = meta
             return info
         except Exception as e:
             logger.error(f"Error constructing DB course {data_id}: {e}")
             return None
+
+    def get_course_best_time(self, data_id):
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("SELECT best_time_ms FROM cw_courses WHERE data_id = ?", (data_id,))
+                row = cursor.fetchone()
+                conn.close()
+                if row and row[0] is not None:
+                    return row[0]
+            except Exception as e:
+                logger.error(f"DB Error getting best time for course {data_id}: {e}")
+        return None
 
     def get_course_data(self, data_id):
         if data_id in self.course_data: return self.course_data[data_id]
@@ -340,7 +372,7 @@ class SmmDataProvider:
             try:
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
-                cursor.execute("SELECT data_id, difficulty, maker, title, stars, binary_data, played FROM cw_courses WHERE data_id = ?", (data_id,))
+                cursor.execute("SELECT data_id, difficulty, maker, title, stars, upload_time, user_plays, clears, total_attempts, binary_data, played FROM cw_courses WHERE data_id = ?", (data_id,))
                 row = cursor.fetchone()
                 conn.close()
                 if row:

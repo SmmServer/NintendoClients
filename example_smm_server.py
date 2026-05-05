@@ -645,6 +645,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 res.first_clear_pid = 1781058687
                 res.world_record_pid = 1781058687
                 res.world_record = 40320
+
+                best_time = self.data_provider.get_course_best_time(param.data_id)
+                if best_time is not None:
+                    res.world_record = best_time
+                    
                 res.first_clear_date = common.DateTime(0x6A28CC7F)  # or null for uncleared date?
                 res.world_record_date = common.DateTime(0x6A28CC7F)
                 return res
