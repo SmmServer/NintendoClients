@@ -173,6 +173,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         super(DataStoreSmmServer, self).__init__()
         self.settings = settings
         self.data_provider = SmmDataProvider(self.settings)
+        self.skip_next_starred = False
 
     def get_meta(self, context, param):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
@@ -461,6 +462,10 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         elif param.magic == 0:  # Course metadata?
             if not param.data_ids:
                 # TODO: implement (bookmarks?)
+                if self.skip_next_starred:
+                    logger.info("Intercepted! Blocking starred courses from entering 100 Mario pool.")
+                    self.skip_next_starred = False
+                    return res
                 starred_ids = self.data_provider.get_starred_courses_ids(10)
                 if starred_ids:
                     param.data_ids = starred_ids
@@ -594,7 +599,22 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 else:
                     raise common.RMCError("DataStore::InvalidArgument")
 
-                return self.data_provider.get_random_courses_by_difficulty(difficulty, 50)
+                # 100 Mario Challenge request behavior:
+                # - Initial pool request: len(unknown2) == 5 (e.g.["1", "0", "74", "", "0"])
+                #   The game requests courses to build the main pool. It immediately follows 
+                #   up with an empty get_custom_ranking request.
+                # - Last course pool request: len(unknown2) == 6 (e.g.["1", "0", "74", "", "0", "12"])
+                #   When the player reaches the final stage (saving Peach), the game requests a 
+                #   new, smaller pool of courses. It does NOT follow up with the empty 
+                #   get_custom_ranking request.
+
+                if len(unknown2) == 6:
+                    logger.info("100 Mario detected but unknown2 has extra elements; skip_next_starred not set.")
+                    return self.data_provider.get_random_courses_by_difficulty(difficulty, 5)
+                else:
+                    self.skip_next_starred = True
+                    logger.info("100 Mario triggered. Interceptor armed for the next empty request.")
+                    return self.data_provider.get_random_courses_by_difficulty(difficulty, 50)
             
             elif unknown2[3] == "0":
                 logger.info("detected course browser (highlights)")
