@@ -618,7 +618,23 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             
             elif unknown2[3] == "0":
                 logger.info("detected course browser (highlights)")
-                return self.data_provider.get_random_courses_mixed(10)
+                if unknown2[0] == "":
+                    return self.data_provider.get_random_courses_mixed(10)
+                else:
+                    try:
+                        fail_rate_max = int(unknown2[2])
+                        if fail_rate_max <= 34: 
+                            difficulty = 0
+                        elif fail_rate_max <= 74: 
+                            difficulty = 1
+                        elif fail_rate_max <= 95: 
+                            difficulty = 2
+                        else: 
+                            difficulty = 3
+                        return self.data_provider.get_random_courses_by_difficulty(difficulty, 10)
+                    except Exception as e:
+                        logger.error(f"Error parsing highlights difficulty: {e}")
+                        return self.data_provider.get_random_courses_mixed(10)
         else:
             logger.info("recommended_course_search_object with unexpected unknown2 parameter")
             raise common.RMCError("DataStore::InvalidArgument")
@@ -646,7 +662,10 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def best_score_rate_course_search_object(self, context, unknown1, unknown2):
         logger.info("Requesting Star Ranking")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
-        return self.data_provider.get_star_ranking()
+        diff_filter = 0
+        if len(unknown2) > 1 and unknown2[1].isdigit():
+            diff_filter = int(unknown2[1])
+        return self.data_provider.get_star_ranking(diff_filter)
 
     def method49(self, context, unknown):
         # TODO: implement (Makers -> Star Ranking)

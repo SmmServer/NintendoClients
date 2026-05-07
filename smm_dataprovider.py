@@ -469,10 +469,37 @@ class SmmDataProvider:
             return self.get_random_courses_mixed(limit)
 
     def get_new_arrivals(self):
-        return self.get_courses_from_list("new_arrivals.json", 10)
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            return self.get_random_courses_mixed(10)
+        else:
+            return self.get_courses_from_list("new_arrivals.json", 10)
 
-    def get_star_ranking(self):
-        return self.get_courses_from_list("star_ranking.json", 10)
+    def get_star_ranking(self, diff_filter=0):
+        source = self._get_course_source()
+        if source == 'CourseWorld':
+            result =[]
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                
+                if diff_filter == 0:
+                    cursor.execute("SELECT data_id FROM cw_courses ORDER BY stars DESC LIMIT 10")
+                else:
+                    db_diff = diff_filter - 1
+                    cursor.execute("SELECT data_id FROM cw_courses WHERE difficulty = ? ORDER BY stars DESC LIMIT 10", (db_diff,))
+                
+                rows = cursor.fetchall()
+                conn.close()
+                
+                for (cid,) in rows:
+                    data = self.get_course_data(cid)
+                    if data: result.append(data)
+            except Exception as e:
+                logger.error(f"DB Error getting star ranking: {e}")
+            return result
+        else:
+            return self.get_courses_from_list("star_ranking.json", 10)
 
     def get_random_courses_mixed(self, amount):
         """
