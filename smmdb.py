@@ -42,7 +42,9 @@ BASE_SMMDB_DIR = os.path.join(CURRENT_DIR, 'www', 'smmdb')
 BASE_CW_DIR = os.path.join(CURRENT_DIR, 'www', 'courseworld')
 LISTS_DIR = os.path.join(CURRENT_DIR, 'www', 'lists') 
 TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
-SYSTEM_ID = 10000000200
+# Older releases generated this fake course as an empty-list placeholder.
+# Never serve or allocate it, but continue excluding files left in old caches.
+LEGACY_SYSTEM_ID = 10000000200
 BOOTSTRAP_LIMIT = 20
 MAINTENANCE_LIMIT = 40
 
@@ -241,7 +243,7 @@ def get_next_index():
                     try: 
                         idx = int(os.path.basename(file).split('-')[0])
                         # Ignore the system ID when calculating max index
-                        if idx == SYSTEM_ID:
+                        if idx == LEGACY_SYSTEM_ID:
                             continue
                         max_index = max(max_index, idx)
                     except: continue
@@ -250,7 +252,7 @@ def get_next_index():
     next_idx = max_index + 1
     
     # If the natural next index happens to be the reserved system ID, skip it
-    if next_idx == SYSTEM_ID:
+    if next_idx == LEGACY_SYSTEM_ID:
         next_idx += 1
         
     return next_idx
@@ -349,85 +351,11 @@ class CacheManager:
             
             return e and n and ex and sx and upl and sta
 
-    def ensure_system_courses(self):
-        system_id = SYSTEM_ID
-        
-        while True:
-            missing = False
-            for i in range(4):
-                path_req = os.path.join(BASE_SMMDB_DIR, str(i), f"{system_id}-0000{i}")
-                if not os.path.exists(path_req):
-                    missing = True
-                    break
-            
-            if not missing:
-                return
-
-            template_binary = None
-            template_json = None
-            found_local = False
-
-            for diff in range(4):
-                search_path = os.path.join(BASE_SMMDB_DIR, str(diff))
-                if os.path.exists(search_path):
-                    for f in os.listdir(search_path):
-                        if f.endswith('-00001') and not f.startswith(str(system_id)):
-                            full_path = os.path.join(search_path, f)
-                            json_path = full_path + '.json'
-                            if os.path.exists(json_path):
-                                try:
-                                    with open(full_path, 'rb') as bf: template_binary = bf.read()
-                                    with open(json_path, 'r') as jf: template_json = json.load(jf)
-                                    found_local = True
-                                    break
-                                except Exception as e:
-                                    pass 
-                    if found_local: break
-
-            if found_local and template_binary and template_json:
-                try:
-                    template_json['id'] = str(system_id)
-
-                    for diff in range(4):
-                        folder = os.path.join(BASE_SMMDB_DIR, str(diff))
-                        mkdir(folder)
-                        
-                        fname_req = f"{system_id}-0000{diff}"
-                        fpath_req = os.path.join(folder, fname_req)
-                        
-                        fname_std = f"{system_id}-00001"
-                        fpath_std = os.path.join(folder, fname_std)
-                        
-                        if not os.path.exists(fpath_req):
-                            with open(fpath_req + '.json', 'w') as f: json.dump(template_json, f)
-                            with open(fpath_req, 'wb') as f: 
-                                f.write(template_binary)
-                                f.flush()
-                                os.fsync(f.fileno())
-                        
-                        if diff != 1 and not os.path.exists(fpath_std):
-                            with open(fpath_std + '.json', 'w') as f: json.dump(template_json, f)
-                            with open(fpath_std, 'wb') as f: 
-                                f.write(template_binary)
-                                f.flush()
-                                os.fsync(f.fileno())
-                    
-                    return
-
-                except Exception as e:
-                    pass
-            else:
-                time.sleep(5)
-
-
     def worker_loop(self):
         self.current_source_type = get_settings()
         self.log(f"Active source: {self.current_source_type}")
 
         if is_online():
-            # Start the system check thread.
-            Thread(target=self.ensure_system_courses, daemon=True).start()
-
             # Bootstrapping logic (20 per category)
             if not self.are_pools_ready():
                 self.is_bootstrapping = True

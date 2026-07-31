@@ -13,7 +13,6 @@ import hashlib
 import zlib
 import logging
 import sys
-import configparser
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +65,27 @@ class SmmDataProvider:
         self.fake_mii_name = {}
         self.list_offsets = {} 
 
-    def get_active_source_dirs(self):
-        """
-        Reads settings.ini to determine which folders to scan.
-        This prevents mixing SMMDB courses with CourseWorld courses.
-        """
-        config = configparser.ConfigParser()
-        # Use SETTINGS_INI_PATH from smmdb to handle PyInstaller correctly
-        ini_path = smmdb.SETTINGS_INI_PATH
-        
-        source = 'SMMDB' # Default
-        try:
-            if os.path.exists(ini_path):
-                config.read(ini_path)
-                source = config.get('General', 'CourseSource', fallback='SMMDB')
-        except: pass
+    def get_active_source(self):
+        """Read the source through the PyInstaller-safe shared settings path."""
+        return smmdb.get_settings()
 
-        if source == 'CourseWorld':
+    def get_active_source_dirs(self):
+        """Return only the cache directory for the selected course source."""
+        if self.get_active_source() == 'CourseWorld':
             return [smmdb.BASE_CW_DIR]
-        else:
-            return [smmdb.BASE_SMMDB_DIR]
+        return [smmdb.BASE_SMMDB_DIR]
+
+    def get_cached_course_difficulty(self, course_path, fallback):
+        """Read SMMDB difficulty metadata, tolerating legacy cache layouts."""
+        try:
+            with open(course_path + '.json', 'r', encoding='utf-8') as f:
+                value = json.load(f).get('difficulty')
+            value = int(value)
+            if 0 <= value <= 3:
+                return value
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        return fallback
 
     def init_mario100_data(self):
         if not smm_mario100: return []
@@ -339,7 +339,7 @@ class SmmDataProvider:
                         if f.endswith('-00001'):
                             try:
                                 cid = int(f.split('-')[0])
-                                if cid == 10000000200 or cid in excluded_ids:
+                                if cid == smmdb.LEGACY_SYSTEM_ID or cid in excluded_ids:
                                     continue
                                 candidates.append(cid)
                             except: continue
@@ -356,48 +356,69 @@ class SmmDataProvider:
         return result
 
     def get_random_courses_by_difficulty(self, difficulty, amount):
+        """Select courses for 100 Mario from the active source.
+
+        SMMDB exposes meaningful difficulty buckets, so those requests remain
+        strict. The archived CourseWorld dataset labels every course as Normal
+        and has no clear/attempt counts from which difficulty can be rebuilt;
+        use its mixed pool for every challenge mode instead of returning an
+        empty Expert or Super Expert list.
         """
-        Strict difficulty fetch for 100 Mario.
-        Only scans the active source type.
-        """
-        diff_value = difficulty.value if hasattr(difficulty, 'value') else difficulty
+        diff_value = difficulty.value if hasattr(difficulty, 'value') else int(difficulty)
+        source = self.get_active_source()
         bases_to_check = self.get_active_source_dirs()
-        
+
         unplayed_candidates = []
         played_candidates = []
-        
-        for base in bases_to_check:
-            path = os.path.join(base, str(diff_value))
-            if os.path.exists(path):
-                for f in os.listdir(path):
-                    if f.endswith('-00001'):
-                        try:
-                            cid = int(f.split('-')[0])
-                            if cid == 10000000200: continue
-                            
-                            course_path = os.path.join(path, f)
-                            if not os.path.exists(course_path + '.played'):
-                                unplayed_candidates.append(course_path)
-                            else:
-                                played_candidates.append(course_path)
-                        except: continue
 
-        selection = []
+        for base in bases_to_check:
+            # CourseWorld has no reliable difficulty information. Scan its
+            # whole cache. For SMMDB, scan all directories too and trust the
+            # adjacent metadata so caches created by older versions still work.
+            for folder_difficulty in range(4):
+                path = os.path.join(base, str(folder_difficulty))
+                if not os.path.exists(path):
+                    continue
+
+                for filename in os.listdir(path):
+                    if not filename.endswith('-00001'):
+                        continue
+                    try:
+                        cid = int(filename.split('-')[0])
+                        if cid == smmdb.LEGACY_SYSTEM_ID:
+                            continue
+
+                        course_path = os.path.join(path, filename)
+                        if source == 'SMMDB':
+                            cached_difficulty = self.get_cached_course_difficulty(
+                                course_path, folder_difficulty
+                            )
+                            if cached_difficulty != diff_value:
+                                continue
+
+                        if os.path.exists(course_path + '.played'):
+                            played_candidates.append(course_path)
+                        else:
+                            unplayed_candidates.append(course_path)
+                    except (TypeError, ValueError):
+                        continue
+
+        if source == 'CourseWorld':
+            logger.info(
+                "CourseWorld has no reliable difficulty metadata; "
+                "using the mixed archive pool for difficulty %s", diff_value
+            )
+
         if len(unplayed_candidates) >= amount:
             selection = random.sample(unplayed_candidates, amount)
         else:
-            selection = unplayed_candidates
+            selection = list(unplayed_candidates)
             remaining = amount - len(selection)
-            
             if played_candidates:
-                fill_amount = min(remaining, len(played_candidates))
-                selection.extend(random.sample(played_candidates, fill_amount))
+                selection.extend(random.sample(played_candidates, min(remaining, len(played_candidates))))
 
-        if not selection:
-            return []
-            
         random.shuffle(selection)
-        
+
         result = []
         for path in selection:
             try:
@@ -405,9 +426,9 @@ class SmmDataProvider:
                 data = self.get_course_data(cid)
                 if data:
                     result.append(data)
-            except Exception:
+            except (OSError, TypeError, ValueError):
                 continue
-            
+
         return result
 
     def get_unkdata(self, data_id): return self.unkdata.get(data_id)

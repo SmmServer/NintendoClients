@@ -781,7 +781,10 @@ class PRUDPStream:
 			return self.packets.pop(0)
 		
 	def acknowledge(self, key, packet):
-		event, block = self.ack_events.pop(key)
+		entry = self.ack_events.pop(key, None)
+		if entry is None:
+			return
+		event, block = entry
 		scheduler.remove(event)
 		if block:
 			self.ack_packets[key] = packet
@@ -856,19 +859,28 @@ class PRUDPStream:
 		packet, counter = param
 		
 		key = (packet.type, packet.stream_id, packet.packet_id)
+		entry = self.ack_events.get(key)
+		# A normal or aggregate ACK may have removed the entry while this
+		# timeout was already due. Treat that as acknowledged, not as an error.
+		if entry is None:
+			return
 		
 		if counter < self.resend_limit:
 			logger.debug("Resending packet: %s" %packet)
 			self.sock.send(self.packet_encoder.encode(packet))
+
+			# Sending may synchronously fail and clean up the stream.
+			entry = self.ack_events.get(key)
+			if entry is None:
+				return
 			
 			event = scheduler.add_timeout(self.handle_timeout, self.resend_timeout, param=(packet, counter+1))
-			block = self.ack_events[key][1]
-			
-			self.ack_events[key] = (event, block)
+			self.ack_events[key] = (event, entry[1])
 		
 		else:
+			if self.ack_events.pop(key, None) is None:
+				return
 			logger.error("Packet timed out: %s" %packet)
-			del self.ack_events[key]
 			self.failure()
 		
 

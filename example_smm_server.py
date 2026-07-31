@@ -13,6 +13,7 @@ import json
 import jsons
 import copy
 from smm_dataprovider import SmmDataProvider
+import smmdb
 import pathlib
 import requests
 import os
@@ -68,13 +69,8 @@ def derive_key(settings, user):
 SECURE_SERVER = "Quazal Rendez-Vous"
 
 def get_course_source():
-    config = configparser.ConfigParser()
-    ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
-    try:
-        config.read(ini_path)
-        return config.get('General', 'CourseSource', fallback='SMMDB')
-    except:
-        return 'SMMDB'
+    """Return the source selected by the GUI, including in frozen builds."""
+    return smmdb.get_settings()
 
 class AuthenticationServer(authentication.AuthenticationServer):
     def __init__(self, settings, secure_host, secure_port):
@@ -337,8 +333,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         try:
             config = configparser.ConfigParser()
-            ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Configs", "settings.ini")
-            config.read(ini_path)
+            config.read(smmdb.SETTINGS_INI_PATH)
             api_key = config.get('General', 'SmmdbApiKey', fallback='')
 
             headers = {
@@ -444,11 +439,10 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 else:
                      raise common.RMCError("DataStore::NotFound")
 
-        elif param.magic == 0:  # Course metadata?
-            if not param.data_ids:
-                # TODO: implement (bookmarks?)
-                param.data_ids = [10000000200]
-
+        elif param.magic == 0:  # Course metadata
+            # An empty favorites/ranking list is valid. The old implementation
+            # substituted a fabricated course ID here, which made an empty 100
+            # Mario result fail with DataStore::NotFound.
             for data_id in param.data_ids:
                 # definitely involve course metadata!
                 course_data: datastoresmm.DataStoreInfoStuff
@@ -483,25 +477,20 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def get_buffer_queue(self, context, param):
         logger.info("param: %s" % json.dumps(jsons.dump(param)))
 
-        source = get_course_source()
-        if source == 'CourseWorld':
-             logger.info("Course Source is CourseWorld. Hiding buffer queue (voters/deaths).")
-             # Still need to mark as played even for CourseWorld
-             if param.unk2 == 3:
-                self.data_provider.mark_course_played(param.data_id)
-             return []
-
         if param.unk2 == 0:
-            logger.info("unk2==0 (Star List?)")
+            # This queue appears to contain starred/favorite course IDs. An
+            # empty queue is valid; do not manufacture a placeholder course.
             res = []
-            data_id = 10000000200
-            res.append(data_id.to_bytes(8, byteorder='little'))
         elif param.unk2 == 3:  # locations where players last died before they finished the course
             self.data_provider.mark_course_played(param.data_id)  # this also happens to be the point where you know someone played a course
-            res = self.data_provider.get_unkdata(param.data_id)
-            if res is None:
-                logger.info("get_buffer_queue, fake unknown data (empty)")
+            if get_course_source() == 'CourseWorld':
+                # The archive has no death-marker data.
                 res = []
+            else:
+                res = self.data_provider.get_unkdata(param.data_id)
+                if res is None:
+                    logger.info("get_buffer_queue, fake unknown data (empty)")
+                    res = []
         else:
             logger.warning("DataStoreSmmServer.get_buffer_queue not implemented (data_id: {})".format(param.data_id))
             raise common.RMCError("DataStore::NotFound")
@@ -669,32 +658,27 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             raise common.RMCError("DataStore::InvalidArgument")
         return res
 
-    def get_metas_with_course_record(self, context, unknown, get_meta_param):
-        logger.info("unknown: {}".format(json.dumps(jsons.dump(unknown))))
+    def get_metas_with_course_record(self, context, requests, get_meta_param):
+        logger.info("requests: {}".format(json.dumps(jsons.dump(requests))))
         logger.info("get_meta_param: {}".format(json.dumps(jsons.dump(get_meta_param))))
         res = common.RMCResponse()
         res.result = common.Result(0x10001)  # Success
         res.infos = []
         res.unknown = []
         res.results = []
-        if unknown == [] and get_meta_param.data_id == 0 and get_meta_param.result_option == 4:
-            # TODO: implement (nobody knows)
-            res.infos.append(self.data_provider.get_course_data(10000000200))
 
-            record = datastoresmm.CourseRecordInfo()
-            record.data_id = 10000000200  # TODO
-            record.unk2 = 0  # uncleared?
-            record.first_clear_pid = 1781058687
-            record.world_record_pid = 1781058687
-            record.world_record = 40320
-            record.first_clear_date = common.DateTime(0x6A28CC7F)  # or null for uncleared date?
-            record.world_record_date = common.DateTime(0x6A28CC7F)
-            res.unknown.append(record)
+        # The request supplies the real course IDs for which metadata and a
+        # record are required. Empty input naturally produces empty lists.
+        for request in requests:
+            course = self.data_provider.get_course_data(request.data_id)
+            if not course:
+                logger.info("get_metas_with_course_record unknown data_id: {}".format(request.data_id))
+                raise common.RMCError("DataStore::NotFound")
 
+            res.infos.append(course)
+            res.unknown.append(self.get_course_record(context, request))
             res.results.append(common.Result(0x690001))
-            pass
-        else:
-            logger.info("UNSUPPORTED")
+
         logger.info("res: %s" % json.dumps(jsons.dump(res)))
         return res
 
