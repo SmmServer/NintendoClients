@@ -45,8 +45,8 @@ TMP_DIR = os.path.join(CURRENT_DIR, 'www', 'tmp')
 # Older releases generated this fake course as an empty-list placeholder.
 # Never serve or allocate it, but continue excluding files left in old caches.
 LEGACY_SYSTEM_ID = 10000000200
-BOOTSTRAP_LIMIT = 20
-MAINTENANCE_LIMIT = 40
+BOOTSTRAP_LIMIT = 50
+MAINTENANCE_LIMIT = 100
 
 """
 typedef unsigned char uint8;
@@ -400,7 +400,7 @@ class CacheManager:
                         last_status_log = time.time()
 
                     if self.current_source_type == 'CourseWorld':
-                         self.maintain_pool_logic("CourseWorld", "random", 80)
+                         self.maintain_pool_logic("CourseWorld", "random", MAINTENANCE_LIMIT)
                     else:
                          # Maintenance
                          self.maintain_pool_logic("Easy", "random", MAINTENANCE_LIMIT, difficulty=Difficulty.Easy)
@@ -455,12 +455,20 @@ class CacheManager:
                 r = self.session.get(url, timeout=20)
                 r.raise_for_status()
 
-                self.current_page_courses = r.json()
+                courses = r.json() or []
+                try:
+                    random.shuffle(courses)
+                except Exception:
+                    pass
+                self.current_page_courses = courses
+                if not courses:
+                    self.log(f"CourseWorld page_{page_num} was empty, will retry another page")
+                    return False
                 return True
             else:
                 url = 'https://smmdb.net/api/getcourses'
                 params = {'limit': 100}
-                
+
                 if order == "uploaded":
                     params['order'] = "uploaded"
                 elif order == "stars":
@@ -475,7 +483,26 @@ class CacheManager:
                 r = self.session.get(url, params=params, timeout=20, headers=temp_headers)
                 r.raise_for_status()
 
-                self.current_page_courses = r.json()
+                if r.status_code == 204:
+                    self.log("SMMDB returned 204 No Content (API empty/down). "
+                             "No new courses this cycle; try CourseWorld source for variety.")
+                    self.current_page_courses = []
+                    return False
+                try:
+                    courses = r.json() or []
+                except ValueError:
+                    self.log("SMMDB returned non-JSON response, skipping page")
+                    self.current_page_courses = []
+                    return False
+                if not courses:
+                    self.log("SMMDB returned an empty list; will retry later")
+                    self.current_page_courses = []
+                    return False
+                try:
+                    random.shuffle(courses)
+                except Exception:
+                    pass
+                self.current_page_courses = courses
                 return True
 
         except requests.exceptions.RequestException as e:
@@ -486,6 +513,33 @@ class CacheManager:
             self.log(f"Error: {e}\n{traceback.format_exc()}")
             self.current_page_courses = []
             return False
+
+    def refresh_once(self):
+        try:
+            self.current_source_type = get_settings()
+            total = 0
+            if self.current_source_type == 'CourseWorld':
+                if self.fetch_new_page(order="random"):
+                    before = len(self.fetched_ids_in_batch)
+                    self.process_batch(25, "Manual refresh (CourseWorld)")
+                    total += max(0, len(self.fetched_ids_in_batch) - before)
+            else:
+                for order, diff in (("random", Difficulty.Easy),
+                                    ("random", Difficulty.Normal),
+                                    ("random", Difficulty.Expert),
+                                    ("random", Difficulty.SuperExpert)):
+                    try:
+                        if self.fetch_new_page(order=order, difficulty=diff):
+                            before = len(self.fetched_ids_in_batch)
+                            self.process_batch(10, f"Manual refresh ({diff.name})")
+                            total += max(0, len(self.fetched_ids_in_batch) - before)
+                    except Exception as e:
+                        self.log(f"Manual refresh {diff} failed: {e}")
+            self.perform_status_update()
+            return total
+        except Exception as e:
+            self.log(f"Manual refresh failed: {e}")
+            return 0
 
     def process_batch(self, count, p_type):
         fetched = 0
@@ -527,7 +581,7 @@ class CacheManager:
                 new_list.append(i)
                 seen.add(i)
                 
-        new_list = new_list[:40] 
+        new_list = new_list[:100] 
         
         try:
             with open(path, 'w') as f: json.dump(new_list, f)

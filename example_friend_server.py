@@ -186,8 +186,25 @@ class FriendsServer(friends.FriendsServer):
         return response
 
     def update_presence(self, context, presence):
-        logger.info("FriendsServer.update_presence not implemented")
-        raise common.RMCError("Core::NotImplemented")
+        logger.info("FriendsServer.update_presence (noop ack)")
+
+    def update_mii(self, context, mii):
+        logger.info("FriendsServer.update_mii (noop ack)")
+
+    def update_comment(self, context, comment):
+        logger.info("FriendsServer.update_comment (noop ack)")
+
+    def update_preference(self, context, preference):
+        logger.info("FriendsServer.update_preference (noop ack)")
+
+    def handle_update_mii(self, context, input, output):
+        logger.info("FriendsServer.handle_update_mii (noop ack)")
+
+    def handle_update_comment(self, context, input, output):
+        logger.info("FriendsServer.handle_update_comment (noop ack)")
+
+    def handle_update_preference(self, context, input, output):
+        logger.info("FriendsServer.handle_update_preference (noop ack)")
 
 
 def main():

@@ -1,4 +1,5 @@
 import random
+import collections
 from nintendo.nex import datastoresmm, common
 import smmdb
 import jsons
@@ -8,6 +9,7 @@ import copy
 import struct
 import re
 import base64
+import array
 import hmac
 import hashlib
 import zlib
@@ -63,7 +65,8 @@ class SmmDataProvider:
         self.fake_mii_data_id = 20000000000
         self.fake_mii_pid = 2000000000
         self.fake_mii_name = {}
-        self.list_offsets = {} 
+        self.list_offsets = {}
+        self.recent_course_ids = collections.deque(maxlen=200)
 
     def get_active_source(self):
         """Read the source through the PyInstaller-safe shared settings path."""
@@ -74,6 +77,20 @@ class SmmDataProvider:
         if self.get_active_source() == 'CourseWorld':
             return [smmdb.BASE_CW_DIR]
         return [smmdb.BASE_SMMDB_DIR]
+
+    def get_datastore_fallback_dirs(self):
+        dirs = []
+        try:
+            ds = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www", "datastore")
+            if os.path.isdir(ds):
+                dirs.append(ds)
+            cemu_ds = os.path.normpath(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "..", "Cemu", "datastore"))
+            if os.path.isdir(cemu_ds) and cemu_ds not in dirs:
+                dirs.append(cemu_ds)
+        except Exception:
+            pass
+        return dirs
 
     def get_cached_course_difficulty(self, course_path, fallback):
         """Read SMMDB difficulty metadata, tolerating legacy cache layouts."""
@@ -138,6 +155,29 @@ class SmmDataProvider:
 
     def get_mario100_data(self): return self.mario100
 
+    def rename_fake_mii(self, fake_mii, newname):
+        try:
+            from nintendo.miis import MiiData
+            clean = (newname or "Player").replace("%", "").replace("\\", "")[:10]
+            if not clean:
+                clean = "Player"
+            mb = fake_mii.info.meta_binary
+            if not mb or len(mb) < 24 + 96 or mb[0:4] != b'BPFC':
+                return
+            mii_bytes = bytes(mb[24:24+96])
+            mii = MiiData.parse(mii_bytes)
+            if mii is None:
+                return
+            mii.mii_name = clean
+            rebuilt = mii.build()
+            if rebuilt is None or len(rebuilt) != 96:
+                return
+            patched = bytearray(mb)
+            patched[24:24+96] = rebuilt
+            fake_mii.info.meta_binary = bytes(patched)
+        except Exception as e:
+            logger.error(f"rename_fake_mii failed for {newname!r}: {e}")
+
     def _generate_dummy_mii(self, pid, name="Player"):
         if pid in self.mii_data_pid:
             return self.mii_data_id[self.mii_data_pid[pid]]
@@ -155,6 +195,7 @@ class SmmDataProvider:
         fake_mii.info.data_id = new_data_id
         fake_mii.info.owner_id = pid
         fake_mii.info.name = name
+        self.rename_fake_mii(fake_mii, name)
         
         self.mii_data_id[new_data_id] = fake_mii
         self.mii_data_pid[pid] = new_data_id
@@ -176,6 +217,33 @@ class SmmDataProvider:
 
     def get_mii_data_id(self, data_id): return self.mii_data_id.get(data_id)
 
+    def ensure_mii_data_id(self, data_id, owner_pid=None):
+        existing = self.mii_data_id.get(data_id)
+        if existing:
+            return existing
+        if not self.mii_data_id:
+            return None
+        try:
+            template = next(iter(self.mii_data_id.values()))
+            fake = copy.deepcopy(template)
+            fake.info.data_id = data_id
+            if owner_pid is None:
+                try:
+                    owner_pid = int(data_id) % 2000000000
+                except Exception:
+                    owner_pid = 1337
+            fake.info.owner_id = owner_pid
+            if not fake.info.name:
+                fake.info.name = f"Player {owner_pid}"
+            self.rename_fake_mii(fake, fake.info.name)
+            self.mii_data_id[data_id] = fake
+            if owner_pid not in self.mii_data_pid:
+                self.mii_data_pid[owner_pid] = data_id
+            return fake
+        except Exception as e:
+            logger.error(f"ensure_mii_data_id failed for {data_id}: {e}")
+            return None
+
     def construct_fake_miidata(self, name):
         if name in self.fake_mii_name: return self.fake_mii_name[name]
         data_id = self.fake_mii_data_id; self.fake_mii_data_id += 1
@@ -187,6 +255,7 @@ class SmmDataProvider:
         base_key = real_keys[abs(hash(name)) % len(real_keys)]
         fake_mii = copy.deepcopy(self.mii_data_id[base_key])
         fake_mii.info.data_id = data_id; fake_mii.info.owner_id = pid; fake_mii.info.name = name
+        self.rename_fake_mii(fake_mii, name)
         self.mii_data_id[data_id] = fake_mii; self.mii_data_pid[pid] = data_id
         self.fake_mii_name[name] = pid
         return pid
@@ -194,7 +263,13 @@ class SmmDataProvider:
     def construct_fake_coursedata(self, course_id, filepath):
         try:
             with open(filepath, 'rb') as f: binary_data = f.read()
-            with open(filepath + '.json', 'r') as f: meta_json = jsons.loads(f.read())
+            try:
+                with open(filepath + '.json', 'r', encoding='utf-8') as f:
+                    meta_json = jsons.loads(f.read())
+                    if not isinstance(meta_json, dict):
+                        meta_json = {}
+            except (OSError, ValueError):
+                meta_json = {}
             
             info = datastoresmm.DataStoreInfoStuff()
             info.stars_received = meta_json.get("stars", 0)
@@ -244,10 +319,9 @@ class SmmDataProvider:
 
     def get_course_filename(self, data_id):
         expected = "{:011d}-00001".format(data_id)
-        
-        # Only check the active source folder!
+
         active_bases = self.get_active_source_dirs()
-        
+
         for base in active_bases:
             for i in range(4):
                 path = os.path.join(base, str(i))
@@ -255,6 +329,10 @@ class SmmDataProvider:
                     fpath = os.path.join(path, expected)
                     if os.path.exists(fpath):
                         return fpath
+        for base in self.get_datastore_fallback_dirs():
+            fpath = os.path.join(base, expected)
+            if os.path.exists(fpath):
+                return fpath
         return None
         
     def get_course_url(self, data_id):
@@ -345,14 +423,41 @@ class SmmDataProvider:
                             except: continue
 
         if not candidates:
+            for base in self.get_datastore_fallback_dirs():
+                try:
+                    for f in os.listdir(base):
+                        if f.endswith('-00001'):
+                            try:
+                                cid = int(f.split('-')[0])
+                                if cid == smmdb.LEGACY_SYSTEM_ID or cid in excluded_ids:
+                                    continue
+                                if cid == 900000:
+                                    continue
+                                candidates.append(cid)
+                            except: continue
+                except OSError:
+                    continue
+
+        if not candidates:
             return []
-        
-        sample_ids = random.sample(candidates, min(amount, len(candidates)))
+
+        try:
+            recent = set(getattr(self, 'recent_course_ids', []))
+        except Exception:
+            recent = set()
+        fresh = [c for c in candidates if c not in recent]
+        pool = fresh if len(fresh) >= min(amount, len(candidates)) else candidates
+
+        sample_ids = random.sample(pool, min(amount, len(pool)))
         result = []
         for cid in sample_ids:
             data = self.get_course_data(cid)
             if data:
                 result.append(data)
+        try:
+            self.recent_course_ids.extend(sample_ids)
+        except Exception:
+            pass
         return result
 
     def get_random_courses_by_difficulty(self, difficulty, amount):
@@ -409,25 +514,72 @@ class SmmDataProvider:
                 "using the mixed archive pool for difficulty %s", diff_value
             )
 
-        if len(unplayed_candidates) >= amount:
+        try:
+            recent = set(getattr(self, 'recent_course_ids', []))
+        except Exception:
+            recent = set()
+
+        def _cid_of(p):
+            try:
+                return int(os.path.basename(p).split('-')[0])
+            except Exception:
+                return None
+
+        unplayed_fresh = [p for p in unplayed_candidates if _cid_of(p) not in recent]
+        played_fresh = [p for p in played_candidates if _cid_of(p) not in recent]
+
+        if len(unplayed_fresh) >= amount:
+            selection = random.sample(unplayed_fresh, amount)
+        elif len(unplayed_candidates) >= amount:
             selection = random.sample(unplayed_candidates, amount)
         else:
-            selection = list(unplayed_candidates)
-            remaining = amount - len(selection)
-            if played_candidates:
-                selection.extend(random.sample(played_candidates, min(remaining, len(played_candidates))))
+            selection = list(unplayed_fresh)
+            for extra_pool in (unplayed_candidates, played_fresh, played_candidates):
+                if len(selection) >= amount:
+                    break
+                for p in extra_pool:
+                    if p not in selection:
+                        selection.append(p)
+                        if len(selection) >= amount:
+                            break
+            if len(selection) > amount:
+                selection = random.sample(selection, amount)
+
+        if not selection and source == 'SMMDB':
+            logger.warning(
+                "No cached courses for difficulty %s; falling back to mixed pool",
+                diff_value,
+            )
+            try:
+                return self.get_random_courses_mixed(amount)
+            except Exception as e:
+                logger.error(f"Mixed fallback failed: {e}")
+                return []
 
         random.shuffle(selection)
 
         result = []
+        served = []
         for path in selection:
             try:
                 cid = int(os.path.basename(path).split('-')[0])
                 data = self.get_course_data(cid)
                 if data:
                     result.append(data)
+                    served.append(cid)
             except (OSError, TypeError, ValueError):
                 continue
+        try:
+            self.recent_course_ids.extend(served)
+        except Exception:
+            pass
+
+        if not result and source == 'SMMDB':
+            logger.warning("Strict pool construction failed; trying mixed pool")
+            try:
+                return self.get_random_courses_mixed(amount)
+            except Exception:
+                pass
 
         return result
 

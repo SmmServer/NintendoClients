@@ -1,6 +1,6 @@
 from typing import List
 from nintendo.nex import backend, service, kerberos, \
-    authentication, secure, datastoresmm, common, messagedelivery
+    authentication, secure, datastoresmm, common, messagedelivery, utility
 from nintendo.games import SMM
 import collections
 import itertools
@@ -163,6 +163,44 @@ class SecureConnectionServer(secure.SecureConnectionServer):
         return self.register(context, urls)
 
 
+class SmmUtilityServer(utility.UtilityServer):
+    def acquire_nex_unique_id(self, context):
+        logger.info("SmmUtilityServer.acquire_nex_unique_id pid=%s", getattr(context, "pid", "?"))
+        return 1000 + int(getattr(context, "pid", 0) or 0)
+
+    def acquire_nex_unique_id_with_password(self, context):
+        logger.info("SmmUtilityServer.acquire_nex_unique_id_with_password")
+        info = utility.UniqueIdInfo()
+        info.unique_id = 1000 + int(getattr(context, "pid", 0) or 0)
+        info.password = 0
+        return info
+
+    def associate_nex_unique_id_with_my_principal_id(self, context, info):
+        logger.info("SmmUtilityServer.associate_nex_unique_id (noop)")
+
+    def associate_nex_unique_ids_with_my_principal_id(self, context, infos):
+        logger.info("SmmUtilityServer.associate_nex_unique_ids (noop)")
+
+    def get_associated_nex_unique_id_with_my_principal_id(self, context):
+        logger.info("SmmUtilityServer.get_associated_nex_unique_id")
+        info = utility.UniqueIdInfo()
+        info.unique_id = 1000 + int(getattr(context, "pid", 0) or 0)
+        info.password = 0
+        return info
+
+    def get_associated_nex_unique_ids_with_my_principal_id(self, context):
+        logger.info("SmmUtilityServer.get_associated_nex_unique_ids (empty)")
+        return []
+
+    def get_integer_settings(self, context, index):
+        logger.info("SmmUtilityServer.get_integer_settings(%s) -> {}", index)
+        return {}
+
+    def get_string_settings(self, context, index):
+        logger.info("SmmUtilityServer.get_string_settings(%s) -> {}", index)
+        return {}
+
+
 class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
     def __init__(self, settings):
         super(DataStoreSmmServer, self).__init__()
@@ -258,6 +296,10 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             if not res.url:
                 raise common.RMCError("DataStore::NotFound")
             res.size = course_data.info.size
+            try:
+                self.data_provider.mark_course_played(data_id)
+            except Exception:
+                pass
         return res
 
     def prepare_get_object(self, context, param):
@@ -298,11 +340,12 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                     mii_data.ratings = []
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
-                elif data.result_option == 6:  # event courses
+                elif data.result_option == 6:
+                    logger.info("get_metas_multiple_param: event course request (result_option 6) -> empty")
                     pass
                 else:
-                    logger.critical(f"result_option: {data.result_option}")
-                    raise common.RMCError("Core::NotImplemented")
+                    logger.warning(f"get_metas_multiple_param: unsupported result_option {data.result_option}, skipping")
+                    continue
         return res
 
     def change_meta(self, context, param):
@@ -327,6 +370,12 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         if source == 'CourseWorld':
             logger.info("Course Source is CourseWorld. Voting disabled.")
+            rmcResponse = common.RMCResponse()
+            rmcResponse.result = common.Result(0x10001)
+            return rmcResponse
+
+        if len(param) != 12:
+            logger.info(f"rate_custom_ranking: ignoring non-star batch (len={len(param)})")
             rmcResponse = common.RMCResponse()
             rmcResponse.result = common.Result(0x10001)
             return rmcResponse
@@ -431,8 +480,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
                 mii_data = self.data_provider.get_mii_data_id(data_id)
                 if not mii_data:
                     logger.info("get_custom_ranking_by_data_id(mii) generating dummy for: {}".format(data_id))
-                    pass 
-                
+                    try:
+                        mii_data = self.data_provider.ensure_mii_data_id(data_id)
+                    except AttributeError:
+                        mii_data = None
+
                 if mii_data:
                     res.infos.append(mii_data)
                     res.results.append(common.Result(0x690001))
@@ -600,7 +652,6 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         return self.data_provider.get_star_ranking()
 
     def method49(self, context, unknown):
-        # TODO: implement (Makers -> Star Ranking)
         logger.info(f"unknown: {json.dumps(jsons.dump(unknown))}")
         res = common.RMCResponse()
         res.result = common.Result(0x10001)  # Success
@@ -609,11 +660,15 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         return res
 
     def score_range_cascaded_search_object(self, context, unknown1, unknown2):
-        # TODO: implement (100 mario v16)
-        logger.error("Super Mario Maker version 16 is not working properly, please install version 272!")
+        logger.warning("score_range_cascaded_search_object (SMM v16?): please install update v272 for best support")
         logger.info("unknown1: {}\nunknown2: {}".format(json.dumps(jsons.dump(unknown1)), json.dumps(jsons.dump(unknown2))))
-        res = []
-        return res
+        try:
+            courses = self.data_provider.get_random_courses_mixed(10)
+            if courses:
+                return courses
+        except Exception as e:
+            logger.error(f"score_range fallback failed: {e}")
+        return []
 
     def upload_course_record(self, context, param):
         logger.info("param: {}".format(json.dumps(jsons.dump(param))))
@@ -693,6 +748,127 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
             res.append(0x80690007)
         return res
 
+    def conditional_search_object(self, context, unknown1, unknown2, unknown3):
+        logger.info("conditional_search_object (graceful empty/mixed fallback)")
+        logger.info("unknown1: {} unknown2: {} unknown3: {}".format(unknown1, json.dumps(jsons.dump(unknown2)), unknown3))
+        try:
+            return self.data_provider.get_random_courses_mixed(10)
+        except Exception:
+            return []
+
+    def suggested_course_search_object(self, context, unknown1, unknown2):
+        logger.info("suggested_course_search_object -> mixed pool")
+        try:
+            return self.data_provider.get_random_courses_mixed(10)
+        except Exception:
+            return []
+
+    def ctr_pick_up_course_search_object(self, context, unknown1, unknown2):
+        logger.info("ctr_pick_up_course_search_object -> mixed pool")
+        try:
+            return self.data_provider.get_random_courses_mixed(10)
+        except Exception:
+            return []
+
+    def report_course(self, context, param):
+        logger.info("report_course ignored: {}".format(json.dumps(jsons.dump(param))))
+
+    def delete_course_record(self, context, param):
+        logger.info("delete_course_record ignored")
+
+    def set_deletion_reason(self, context, param):
+        logger.info("set_deletion_reason ignored")
+
+    def reset_rate_custom_ranking_counter(self, context, unk1):
+        logger.info("reset_rate_custom_ranking_counter ignored ({})".format(unk1))
+
+    def set_application_config(self, context, param):
+        logger.info("set_application_config ignored")
+
+    def delete_application_config(self, context, param):
+        logger.info("delete_application_config ignored")
+
+    def set_application_config_string(self, context, param):
+        logger.info("set_application_config_string ignored")
+
+    def add_to_buffer_queue(self, context, param):
+        logger.info("add_to_buffer_queue (singular) ignored")
+
+    def get_buffer_queues(self, context, param):
+        logger.info("get_buffer_queues (plural) -> empty")
+        return []
+
+    def clear_buffer_queues(self, context, param):
+        logger.info("clear_buffer_queues ignored")
+
+    def complete_attach_file_v1(self, context, param):
+        logger.info("complete_attach_file_v1 -> delegating to complete_attach_file")
+        return self.complete_attach_file(context, param)
+
+    def search_unknown_platform_objects(self, context, param):
+        logger.info("search_unknown_platform_objects -> empty")
+        return []
+
+    def handle_add_to_buffer_queue(self, context, input, output):
+        from nintendo.nex import datastoresmm as _ds
+        try:
+            param = input.extract(_ds.UnknownStruct4)
+        except Exception:
+            param = None
+        self.add_to_buffer_queue(context, param)
+
+    def handle_get_buffer_queues(self, context, input, output):
+        from nintendo.nex import datastoresmm as _ds
+        try:
+            param = input.extract(_ds.UnknownStruct4)
+        except Exception:
+            param = None
+        res = self.get_buffer_queues(context, param)
+        output.list(res, output.qbuffer)
+
+    def handle_clear_buffer_queues(self, context, input, output):
+        try:
+            param = input.qbuffer()
+        except Exception:
+            param = None
+        self.clear_buffer_queues(context, param)
+
+    def handle_complete_attach_file_v1(self, context, input, output):
+        from nintendo.nex import datastoresmm as _ds
+        param = input.extract(_ds.DataStoreCompletePostParam)
+        res = self.complete_attach_file_v1(context, param)
+        output.string(res)
+
+    def handle_set_application_config(self, context, input, output):
+        self.set_application_config(context, None)
+
+    def handle_delete_application_config(self, context, input, output):
+        self.delete_application_config(context, None)
+
+    def handle_set_application_config_string(self, context, input, output):
+        self.set_application_config_string(context, None)
+
+    def handle_delete_course_record(self, context, input, output):
+        self.delete_course_record(context, None)
+
+    def handle_set_deletion_reason(self, context, input, output):
+        self.set_deletion_reason(context, None)
+
+    def handle_reset_rate_custom_ranking_counter(self, context, input, output):
+        try:
+            unk1 = input.u32()
+        except Exception:
+            unk1 = 0
+        self.reset_rate_custom_ranking_counter(context, unk1)
+
+    def handle_search_unknown_platform_objects(self, context, input, output):
+        try:
+            param = input.u32()
+        except Exception:
+            param = None
+        res = self.search_unknown_platform_objects(context, param)
+        output.list(res, output.add)
+
 
 class MessageDeliveryServer(messagedelivery.MessageDeliveryServer):
     def __init__(self, settings):
@@ -760,6 +936,7 @@ def main():
     secure_server.register_protocol(SecureConnectionServer())
     secure_server.register_protocol(DataStoreSmmServer(settings))
     secure_server.register_protocol(MessageDeliveryServer(settings))
+    secure_server.register_protocol(SmmUtilityServer())
     secure_server.start(host, secure_server_port, key=server_key)
     logger.info("smm secure server {}:{}".format(host, secure_server_port))
 
